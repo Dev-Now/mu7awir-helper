@@ -1,0 +1,33 @@
+{
+  "name": "mu7awir-helper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A browser customized for the tasks of a محاور — search Islamic sources and draft responses.",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.preload.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "smoke": "node scripts/smoke.mjs",
+    "verify": "npm run typecheck && npm run test && npm run build && npm run smoke"
+  },
+  "dependencies": {
+    "minisearch": "^7.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^38.8.6",
+    "electron-vite": "^3.1.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "typescript": "^5.9.0",
+    "vite": "^6.3.0",
+    "vitest": "^3.2.7",
+    "zustand": "^5.0.15"
+  }
+}
