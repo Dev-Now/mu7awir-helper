@@ -9,6 +9,9 @@ export function installTestHook(): void {
   window.__mu7 = {
     ready: true,
     getWorkspace: () => useApp.getState().workspace,
+    getNav: () => useApp.getState().nav,
+    getFind: () => useApp.getState().find,
+    getTools: () => useApp.getState().tools,
     actions: useApp.getState() as unknown as Record<string, (...args: never[]) => unknown>,
     flush: () => window.api.flushWorkspace()
   }

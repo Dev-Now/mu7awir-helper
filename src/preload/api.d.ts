@@ -7,6 +7,9 @@ declare global {
     __mu7: {
       ready: boolean
       getWorkspace: () => import('@shared/types').Workspace
+      getNav: () => Record<string, unknown>
+      getFind: () => unknown
+      getTools: () => import('@shared/types').SearchTool[]
       actions: Record<string, (...args: never[]) => unknown>
       flush: () => Promise<void>
     }

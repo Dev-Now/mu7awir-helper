@@ -318,3 +318,209 @@ button {
 .tabbar__new {
   margin-left: 2px;
 }
+
+/* ── browser chrome ────────────────────────────────────────────────────── */
+
+.navbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0 6px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.navbar__url {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  direction: ltr;
+  font-size: 12px;
+  outline: none;
+  text-overflow: ellipsis;
+}
+
+.navbar__url:focus {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.icon-btn:disabled:hover {
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.icon-btn--hint {
+  color: var(--accent);
+}
+
+.findbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.findbar__input {
+  width: 150px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: var(--font-ar);
+  outline: none;
+}
+
+.findbar__count {
+  min-width: 42px;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* ── new-search prompt ─────────────────────────────────────────────────── */
+
+.prompt {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  z-index: 10;
+}
+
+.prompt__card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(560px, 88%);
+  padding: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-raised);
+}
+
+.prompt__tools {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+.prompt__tool {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  cursor: pointer;
+  text-align: right;
+}
+
+.prompt__tool:hover {
+  border-color: var(--border-strong);
+}
+
+.prompt__tool--active {
+  border-color: var(--accent);
+  background: var(--bg-active);
+}
+
+.prompt__tool-label {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-ar);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt__tool-key {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.prompt__input {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: var(--font-ar);
+  font-size: 16px;
+  outline: none;
+}
+
+.prompt__input:focus {
+  border-color: var(--accent);
+}
+
+.prompt__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.btn {
+  padding: 6px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent-dim);
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font-ar);
+}
+
+.btn:hover {
+  background: var(--accent);
+}
+
+.btn--ghost {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.btn--ghost:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+/* ── toast ─────────────────────────────────────────────────────────────── */
+
+.toast {
+  position: fixed;
+  bottom: 14px;
+  left: 14px;
+  max-width: 460px;
+  padding: 9px 14px;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  color: var(--text);
+  font-family: var(--font-ar);
+  z-index: 50;
+}
+
+.toast--warn {
+  border-left-color: var(--danger);
+}

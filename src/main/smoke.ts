@@ -10,6 +10,7 @@ import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
 import { promises as fs } from 'node:fs'
 import type { WorkspaceStore } from './store'
+import type { ViewManager } from './viewManager'
 import type { Workspace } from '@shared/types'
 
 interface Step {
@@ -122,6 +123,28 @@ async function dragSplitterTo(win: BrowserWindow, clientY: number): Promise<void
        el.dispatchEvent(new PointerEvent('pointerup', { ...opts, clientY: ${clientY}, clientX: 40 }))
      })()`
   )
+  await sleep(80)
+}
+
+/** Create a search tab the way a user would: open the prompt, pick a tool, submit. */
+async function openPromptTab(win: BrowserWindow, toolId: string, query = ''): Promise<void> {
+  await click(win, 'new-search-tab')
+  await evaluate(
+    win,
+    `(() => {
+       const btn = document.querySelector('${sel('prompt-tool')}[data-tool="${toolId}"]')
+       if (!btn) throw new Error('tool ${toolId} is not offered')
+       btn.click()
+       if (${JSON.stringify(query)}) {
+         const input = document.querySelector('${sel('prompt-query')}')
+         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+         setter.call(input, ${JSON.stringify(query)})
+         input.dispatchEvent(new Event('input', { bubbles: true }))
+       }
+     })()`
+  )
+  await sleep(40)
+  await click(win, 'prompt-submit')
   await sleep(80)
 }
 
@@ -276,8 +299,9 @@ function m1Steps(win: BrowserWindow, store: WorkspaceStore): Step[] {
     {
       name: 'M1 tab bars add search and draft tabs independently',
       run: async () => {
-        await click(win, 'new-search-tab')
-        await click(win, 'new-search-tab')
+        // The local tool is used here so M1's tab checks stay off the network.
+        await openPromptTab(win, 'rudud')
+        await openPromptTab(win, 'rudud')
         await click(win, 'new-draft-tab')
         assertEqual(await evaluate<number>(win, count('search-tab')), 2, 'two search tabs')
         assertEqual(await evaluate<number>(win, count('draft-tab')), 1, 'one draft tab')
@@ -401,21 +425,355 @@ function m1Steps(win: BrowserWindow, store: WorkspaceStore): Step[] {
   ]
 }
 
+// ── M2: embedded views ───────────────────────────────────────────────────────
+
+/** A self-contained page, so the default smoke run never touches the network. */
+const dataPage = (title: string, body: string): string =>
+  'data:text/html;charset=utf-8,' +
+  encodeURIComponent(
+    `<!doctype html><html lang="ar"><head><meta charset="utf-8"><title>${title}</title>` +
+      `</head><body style="font:16px sans-serif">${body}</body></html>`
+  )
+
+const PAGE_A = dataPage('صفحة أ', '<p>الصبر</p><p>الصبر</p><p>الصبر مفتاح الفرج</p>')
+const PAGE_B = dataPage('صفحة ب', '<p>الشكر لله</p>')
+
+/** Poll a main-process predicate, the counterpart to `waitFor` in the renderer. */
+async function waitUntil(
+  predicate: () => boolean,
+  what: string,
+  timeoutMs = 10_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (predicate()) return
+    await sleep(80)
+  }
+  throw new SmokeError(`timed out waiting for ${what}`)
+}
+
+const activeSearchTabId = (win: BrowserWindow): Promise<string | null> =>
+  evaluate(
+    win,
+    `(() => {
+       const ws = window.__mu7.getWorkspace()
+       const d = ws.discussions.find((x) => x.id === ws.activeDiscussionId)
+       return d ? d.activeSearchTabId : null
+     })()`
+  )
+
+/** Add a search tab pointing at a local page and wait for its view to attach. */
+async function openLocalSearchTab(
+  win: BrowserWindow,
+  views: ViewManager,
+  init: { toolId: string; title: string; query?: string; url: string }
+): Promise<string> {
+  await evaluate(win, `window.__mu7.actions.addSearchTab(${JSON.stringify(init)})`)
+  await sleep(80)
+  const tabId = await activeSearchTabId(win)
+  assert(tabId, 'the new search tab should become active')
+  await waitUntil(
+    () => views.debugState().attached.includes(tabId),
+    `view for ${init.title} to attach`
+  )
+  return tabId
+}
+
+function m2Steps(win: BrowserWindow, store: WorkspaceStore, views: ViewManager): Step[] {
+  let mainTabId = ''
+
+  return [
+    {
+      name: 'M2 the shipped tool registry reaches the renderer',
+      run: async () => {
+        const ids = await evaluate<string[]>(win, `window.__mu7.getTools().map((t) => t.id)`)
+        assertEqual(
+          ids.join(','),
+          'quran,hadith,fatwa,shamela,basaer,fiqh,rudud',
+          'tool ids and their order'
+        )
+      }
+    },
+    {
+      name: 'M2 a search tab gets an embedded view glued to the pane',
+      run: async () => {
+        mainTabId = await openLocalSearchTab(win, views, {
+          toolId: 'quran',
+          title: 'الصبر',
+          query: 'الصبر',
+          url: PAGE_A
+        })
+
+        const rect = await evaluate<{ x: number; y: number; width: number; height: number }>(
+          win,
+          `(() => {
+             const r = document.querySelector('${sel('search-view')}').getBoundingClientRect()
+             return { x: r.left, y: r.top, width: r.width, height: r.height }
+           })()`
+        )
+        const bounds = views.debugState().bounds
+        assert(bounds, 'main should have received bounds')
+        for (const key of ['x', 'y', 'width', 'height'] as const) {
+          assert(
+            Math.abs(bounds[key] - rect[key]) <= 1,
+            `${key} mismatch: pane ${rect[key].toFixed(1)} vs view ${bounds[key]}`
+          )
+        }
+        assert(rect.height > 100, 'the search view should have real height')
+      }
+    },
+    {
+      name: 'M2 the view follows the splitter',
+      run: async () => {
+        const before = views.debugState().bounds!.height
+        await dragSplitterTo(win, 300)
+        await sleep(120)
+
+        const rect = await evaluate<{ y: number; height: number }>(
+          win,
+          `(() => {
+             const r = document.querySelector('${sel('search-view')}').getBoundingClientRect()
+             return { y: r.top, height: r.height }
+           })()`
+        )
+        const after = views.debugState().bounds!
+        assert(after.height < before - 40, 'the view should shrink with its pane')
+        assert(
+          Math.abs(after.height - rect.height) <= 1 && Math.abs(after.y - rect.y) <= 1,
+          `view should still cover the pane exactly (pane ${rect.height.toFixed(1)}, view ${after.height})`
+        )
+
+        await evaluate(win, `window.__mu7.actions.updateSettings({ splitRatio: 2 / 3 })`)
+        await sleep(120)
+      }
+    },
+    {
+      name: 'M2 the new-search prompt hides the view and lists the enabled tools',
+      run: async () => {
+        await click(win, 'new-search-tab')
+        await waitUntil(
+          () => views.debugState().attached.length === 0,
+          'the view to detach behind the prompt'
+        )
+
+        // fiqh has no source yet, so six of the seven tools are offered.
+        assertEqual(await evaluate<number>(win, count('prompt-tool')), 6, 'enabled tools offered')
+        const shown = await evaluate<string[]>(
+          win,
+          `[...document.querySelectorAll('${sel('prompt-tool')}')].map((el) => el.dataset.tool)`
+        )
+        assertEqual(shown.join(','), 'quran,hadith,fatwa,shamela,basaer,rudud', 'offered tools')
+
+        await evaluate(
+          win,
+          `document.querySelector('${sel('prompt-query')}')
+             .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`
+        )
+        await waitUntil(
+          () => views.debugState().attached.includes(mainTabId),
+          'the view to come back after cancelling'
+        )
+      }
+    },
+    {
+      name: 'M2 a local tool tab hides the embedded view',
+      run: async () => {
+        await evaluate(
+          win,
+          `window.__mu7.actions.addSearchTab({ toolId: 'rudud', title: 'مكتبة الردود' })`
+        )
+        await waitUntil(
+          () => views.debugState().attached.length === 0,
+          'the view to detach for a local tool'
+        )
+
+        await click(win, 'search-tab', 0) // back to the web tab
+        await waitUntil(
+          () => views.debugState().attached.includes(mainTabId),
+          'the web view to return'
+        )
+      }
+    },
+    {
+      name: 'M2 back and forward navigate the embedded view',
+      run: async () => {
+        await waitUntil(() => views.currentUrl(mainTabId) === PAGE_A, 'page A to load')
+
+        await evaluate(win, `window.api.view.navigate(${JSON.stringify(mainTabId)}, ${JSON.stringify(PAGE_B)})`)
+        await waitUntil(() => views.currentUrl(mainTabId) === PAGE_B, 'page B to load')
+        await waitFor(
+          win,
+          `window.__mu7.getNav()[${JSON.stringify(mainTabId)}].canGoBack === true`,
+          'the back button to enable'
+        )
+
+        await click(win, 'nav-back')
+        await waitUntil(() => views.currentUrl(mainTabId) === PAGE_A, 'back to page A')
+
+        await click(win, 'nav-forward')
+        await waitUntil(() => views.currentUrl(mainTabId) === PAGE_B, 'forward to page B')
+
+        await evaluate(win, `window.api.view.navigate(${JSON.stringify(mainTabId)}, ${JSON.stringify(PAGE_A)})`)
+        await waitUntil(() => views.currentUrl(mainTabId) === PAGE_A, 'return to page A')
+      }
+    },
+    {
+      name: 'M2 find-in-page counts matches inside the embedded page',
+      run: async () => {
+        await click(win, 'find-toggle')
+        await evaluate(
+          win,
+          `(() => {
+             const input = document.querySelector('${sel('find-input')}')
+             const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+             setter.call(input, 'الصبر')
+             input.dispatchEvent(new Event('input', { bubbles: true }))
+           })()`
+        )
+        await waitFor(
+          win,
+          `(window.__mu7.getFind() || {}).matches >= 3`,
+          'find to report the three matches'
+        )
+        assert(
+          (await evaluate<string>(win, `document.querySelector('${sel('find-count')}').textContent`)).includes('/'),
+          'the find bar should show an n/m counter'
+        )
+      }
+    },
+    {
+      name: 'M2 calibration learns a search template from the live URL',
+      run: async () => {
+        await click(win, 'calibrate')
+        await waitFor(win, `${count('toast')} === 1`, 'a calibration toast')
+
+        const learned = await evaluate<string | null>(
+          win,
+          `(window.__mu7.getTools().find((t) => t.id === 'quran') || {}).searchUrl`
+        )
+        assert(learned?.includes('{q}'), `expected a {q} template, got ${JSON.stringify(learned)}`)
+
+        // It must round-trip back through main into the same URL.
+        const rebuilt = await evaluate<string>(win, `window.api.buildSearchUrl('quran', 'الصبر')`)
+        assertEqual(rebuilt, PAGE_A, 'the learned template should rebuild the page URL')
+      }
+    },
+    {
+      name: 'M2 beyond eight live views the oldest hibernate',
+      run: async () => {
+        for (let i = 0; i < 8; i++) {
+          await openLocalSearchTab(win, views, {
+            toolId: 'quran',
+            title: `بحث ${i}`,
+            url: dataPage(`ص ${i}`, `<p>صفحة ${i}</p>`)
+          })
+        }
+        const state = views.debugState()
+        assert(state.live.length <= 8, `live views capped, got ${state.live.length}`)
+        assert(state.hibernated.length > 0, 'the oldest views should have hibernated')
+        assert(state.hibernated.includes(mainTabId), 'the first tab is the oldest and should sleep')
+
+        // Waking it must restore the page it was on, not the tab's original URL.
+        await click(win, 'search-tab', 0)
+        await waitUntil(() => views.debugState().attached.includes(mainTabId), 'the tab to wake')
+        await waitUntil(() => views.currentUrl(mainTabId) === PAGE_A, 'the woken tab to restore its page')
+      }
+    },
+    {
+      name: 'M2 closing a search tab destroys its view',
+      run: async () => {
+        await click(win, 'search-tab-close', 0)
+        await waitUntil(
+          () => !views.debugState().live.includes(mainTabId) && !views.debugState().hibernated.includes(mainTabId),
+          'the view to be torn down'
+        )
+
+        await flush(win)
+        const saved = await readWorkspaceFile(store)
+        const discussion = saved.discussions.find((d) => d.id === saved.activeDiscussionId)
+        assert(
+          !discussion?.tabs.some((t) => t.id === mainTabId),
+          'the closed tab should be gone from disk too'
+        )
+      }
+    }
+  ]
+}
+
+/** Opt-in: exercises the real sites. Enabled with MU7_SMOKE_NET=1. */
+function m2NetSteps(win: BrowserWindow, views: ViewManager): Step[] {
+  return [
+    {
+      name: 'M2 (net) a real search loads through the prompt',
+      run: async () => {
+        // `hadith` rather than `quran`: the calibration step above deliberately
+        // overwrote the quran template with a local test URL.
+        await openPromptTab(win, 'hadith', 'الصبر')
+
+        const tabId = await activeSearchTabId(win)
+        assert(tabId, 'a tab should have been created')
+        await waitUntil(
+          () => views.currentUrl(tabId).includes('sunnah.one'),
+          'sunnah.one to load',
+          30_000
+        )
+        await waitFor(
+          win,
+          `(window.__mu7.getNav()[${JSON.stringify(tabId)}] || {}).loading === false`,
+          'the page to finish loading',
+          30_000
+        )
+        console.log(`SMOKE net   loaded ${views.currentUrl(tabId)}`)
+
+        // A URL that only prefills the box is far less useful than one that runs the
+        // search, so confirm results actually arrive after the async fetch settles.
+        const embedded = views.attachedContents()
+        assert(embedded, 'the view should be attached')
+        let text = ''
+        for (let i = 0; i < 20 && !/[1-9١-٩]/.test(text.replace(/\D/g, ' ')); i++) {
+          await sleep(1000)
+          text = await embedded.executeJavaScript(
+            `(document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 240)`,
+            true
+          )
+        }
+        console.log(`SMOKE net   page text: ${text}`)
+      }
+    }
+  ]
+}
+
 /** Capture the final window state when MU7_SMOKE_SHOT names a path — handy for eyeballing UI work. */
-async function capture(win: BrowserWindow): Promise<void> {
+async function capture(win: BrowserWindow, views: ViewManager): Promise<void> {
   const target = process.env.MU7_SMOKE_SHOT
   if (!target) return
   try {
-    const image = await win.webContents.capturePage()
-    await fs.writeFile(target, image.toPNG())
+    await fs.writeFile(target, (await win.webContents.capturePage()).toPNG())
     console.log(`SMOKE shot  ${target}`)
+    // Child views render outside the window's own contents, so grab the page separately.
+    const embedded = views.attachedContents()
+    if (embedded) {
+      const viewShot = target.replace(/\.png$/, '') + '.view.png'
+      await fs.writeFile(viewShot, (await embedded.capturePage()).toPNG())
+      console.log(`SMOKE shot  ${viewShot}`)
+    }
   } catch (err) {
     console.log(`SMOKE shot failed: ${(err as Error).message}`)
   }
 }
 
-export async function runSmoke(win: BrowserWindow, store: WorkspaceStore): Promise<void> {
-  const steps = [...m0Steps(win, store), ...m1Steps(win, store)]
+export async function runSmoke(
+  win: BrowserWindow,
+  store: WorkspaceStore,
+  views: ViewManager
+): Promise<void> {
+  const steps = [
+    ...m0Steps(win, store),
+    ...m1Steps(win, store),
+    ...m2Steps(win, store, views),
+    // Real sites are only touched when explicitly asked for, so the default run is hermetic.
+    ...(process.env.MU7_SMOKE_NET === '1' ? m2NetSteps(win, views) : [])
+  ]
   let failed = false
   for (const step of steps) {
     try {
@@ -427,7 +785,12 @@ export async function runSmoke(win: BrowserWindow, store: WorkspaceStore): Promi
       break
     }
   }
-  await capture(win)
+  await capture(win, views)
   console.log(failed ? 'SMOKE FAILED' : 'SMOKE PASS')
+
+  // Live child views can keep the process alive, so tear them down and hard-exit if
+  // Electron's own shutdown stalls.
+  views.destroyAll()
+  setTimeout(() => process.exit(failed ? 1 : 0), 1500).unref()
   app.exit(failed ? 1 : 0)
 }
