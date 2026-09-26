@@ -27,6 +27,16 @@ const api = {
   calibrateTool: (toolId: string, tabId: string, query: string): Promise<string | null> =>
     ipcRenderer.invoke('tools:calibrate', toolId, tabId, query),
 
+  writeClipboard: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),
+  readClipboard: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),
+
+  /** Copy requests originating inside an embedded page. */
+  onCopy: (handler: (payload: unknown) => void): (() => void) => {
+    const listener = (_e: unknown, payload: unknown): void => handler(payload)
+    ipcRenderer.on('copy:event', listener)
+    return () => ipcRenderer.removeListener('copy:event', listener)
+  },
+
   view: {
     sync: (request: SyncRequest): void => ipcRenderer.send('view:sync', request),
     bounds: (bounds: Bounds): void => ipcRenderer.send('view:bounds', bounds),

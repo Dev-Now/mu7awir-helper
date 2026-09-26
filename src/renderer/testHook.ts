@@ -12,6 +12,7 @@ export function installTestHook(): void {
     getNav: () => useApp.getState().nav,
     getFind: () => useApp.getState().find,
     getTools: () => useApp.getState().tools,
+    readClipboard: () => window.api.readClipboard(),
     actions: useApp.getState() as unknown as Record<string, (...args: never[]) => unknown>,
     flush: () => window.api.flushWorkspace()
   }

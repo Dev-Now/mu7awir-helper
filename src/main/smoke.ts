@@ -700,6 +700,197 @@ function m2Steps(win: BrowserWindow, store: WorkspaceStore, views: ViewManager):
   ]
 }
 
+// ── M3: copy pipeline ────────────────────────────────────────────────────────
+
+/** Run an expression inside the embedded page rather than the app's renderer. */
+function inPage<T>(views: ViewManager, expression: string): Promise<T> {
+  const wc = views.attachedContents()
+  if (!wc) throw new SmokeError('no embedded view is attached')
+  return wc.executeJavaScript(expression, true) as Promise<T>
+}
+
+/** Select the contents of the nth paragraph of the embedded page. */
+const selectParagraph = (views: ViewManager, index: number): Promise<void> =>
+  inPage(
+    views,
+    `(() => {
+       const p = document.querySelectorAll('p')[${index}]
+       const range = document.createRange()
+       range.selectNodeContents(p)
+       const sel = getSelection()
+       sel.removeAllRanges()
+       sel.addRange(range)
+     })()`
+  )
+
+const pressInPage = (views: ViewManager, key: string, shift: boolean): Promise<void> =>
+  inPage(
+    views,
+    `document.dispatchEvent(new KeyboardEvent('keydown', {
+       key: ${JSON.stringify(key)}, ctrlKey: true, shiftKey: ${shift}, bubbles: true, cancelable: true
+     }))`
+  )
+
+function m3Steps(win: BrowserWindow, store: WorkspaceStore, views: ViewManager): Step[] {
+  const QUOTE = 'الصَّبْرُ عِنْدَ الصَّدْمَةِ الأُولى'
+  const page = dataPage(
+    'صفحة الاقتباس',
+    `<p>قصير</p><p>${QUOTE} — وهذا نصٌّ طويل بما يكفي ليستحق زر النسخ.</p>` +
+      `<p>فقرة أخرى طويلة بما يكفي كي تُعرض عليها أداة النسخ عند المرور بالفأرة.</p>`
+  )
+  let tabId = ''
+
+  return [
+    {
+      name: 'M3 the copy overlay is injected into the embedded page',
+      run: async () => {
+        await evaluate(win, `window.__mu7.actions.createDiscussion('حوار النسخ')`)
+        await sleep(60)
+        tabId = await openLocalSearchTab(win, views, {
+          toolId: 'quran',
+          title: 'اقتباس',
+          query: 'الصبر',
+          url: page
+        })
+        await waitUntil(() => views.currentUrl(tabId) === page, 'the quote page to load')
+
+        await sleep(200) // let the preload install its overlay
+
+        assertEqual(
+          await inPage<number>(views, `document.querySelectorAll('[data-mu7="copy-overlay"]').length`),
+          1,
+          'exactly one overlay host'
+        )
+        assertEqual(
+          await inPage<boolean>(
+            views,
+            `!!document.querySelector('[data-mu7="copy-overlay"]').shadowRoot.querySelector('[data-mu7-copy]')`
+          ),
+          true,
+          'the shadow root should hold the copy button'
+        )
+      }
+    },
+    {
+      name: 'M3 the copy button follows the hovered block and skips short ones',
+      run: async () => {
+        // Computed, not inline: the button starts hidden from the shadow stylesheet.
+        const visible = (): Promise<string> =>
+          inPage(
+            views,
+            `getComputedStyle(
+               document.querySelector('[data-mu7="copy-overlay"]').shadowRoot
+                 .querySelector('[data-mu7-copy]')
+             ).display`
+          )
+
+        // Hovering the short paragraph must not offer a button.
+        await inPage(
+          views,
+          `document.querySelectorAll('p')[0].dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))`
+        )
+        await sleep(120)
+        assertEqual(await visible(), 'none', 'no button on a short block')
+
+        await inPage(
+          views,
+          `document.querySelectorAll('p')[1].dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))`
+        )
+        await sleep(150)
+        assertEqual(await visible(), 'flex', 'button shown on a quotable block')
+      }
+    },
+    {
+      name: 'M3 clicking the copy button puts the block on the clipboard',
+      run: async () => {
+        await inPage(
+          views,
+          `document.querySelector('[data-mu7="copy-overlay"]').shadowRoot
+             .querySelector('[data-mu7-copy]').click()`
+        )
+        await sleep(200)
+
+        const copied = await evaluate<string>(win, `window.__mu7.readClipboard()`)
+        assert(copied.includes(QUOTE), `clipboard should hold the quote, got ${JSON.stringify(copied.slice(0, 80))}`)
+        // Diacritics must survive the trip through the pipeline.
+        assert(copied.includes('الصَّبْرُ'), 'tashkeel must be preserved')
+        // The block button copies the text alone; only the shortcuts add attribution.
+        assert(!copied.includes('صفحة الاقتباس'), 'the plain button must not append the source')
+        await waitFor(win, `${count('toast')} === 1`, 'a copy toast')
+      }
+    },
+    {
+      name: 'M3 Ctrl+Shift+C copies the selection with its source',
+      run: async () => {
+        await evaluate(win, `window.api.writeClipboard('')`)
+        await selectParagraph(views, 1)
+        await pressInPage(views, 'C', true)
+        await sleep(250)
+
+        const copied = await evaluate<string>(win, `window.__mu7.readClipboard()`)
+        assert(copied.includes(QUOTE), 'the selection should be copied')
+        assert(copied.includes('— صفحة الاقتباس'), `attribution missing from ${JSON.stringify(copied.slice(-60))}`)
+        assert(copied.includes('data:text/html'), 'the source URL should be included')
+      }
+    },
+    {
+      name: 'M3 Ctrl+Enter sends the selection into the active draft',
+      run: async () => {
+        assertEqual(
+          await evaluate<number>(win, count('draft-tab')),
+          0,
+          'this discussion starts with no draft'
+        )
+
+        await selectParagraph(views, 2)
+        await pressInPage(views, 'Enter', false)
+        await waitFor(win, `${count('draft-tab')} === 1`, 'a draft to be opened for the excerpt')
+
+        const draft = await evaluate<{ content: string; sources: number }>(
+          win,
+          `(() => {
+             const ws = window.__mu7.getWorkspace()
+             const d = ws.discussions.find((x) => x.id === ws.activeDiscussionId)
+             const t = d.tabs.find((t) => t.id === d.activeDraftTabId)
+             return { content: t.content, sources: t.sources.length }
+           })()`
+        )
+        assert(draft.content.includes('فقرة أخرى طويلة'), `draft got ${JSON.stringify(draft.content)}`)
+        assertEqual(draft.sources, 1, 'the excerpt should carry one recorded source')
+      }
+    },
+    {
+      name: 'M3 a second excerpt appends below the first with a blank line',
+      run: async () => {
+        await selectParagraph(views, 1)
+        await pressInPage(views, 'Enter', false)
+        await sleep(250)
+
+        const content = await evaluate<string>(
+          win,
+          `(() => {
+             const ws = window.__mu7.getWorkspace()
+             const d = ws.discussions.find((x) => x.id === ws.activeDiscussionId)
+             return d.tabs.find((t) => t.id === d.activeDraftTabId).content
+           })()`
+        )
+        assert(content.includes('\n\n'), 'excerpts should be separated by a blank line')
+        assert(content.includes(QUOTE), 'the second excerpt should be appended')
+        assertEqual(await evaluate<number>(win, count('draft-tab')), 1, 'still a single draft')
+
+        await flush(win)
+        const saved = await readWorkspaceFile(store)
+        const discussion = saved.discussions.find((d) => d.id === saved.activeDiscussionId)!
+        const draft = discussion.tabs.find((t) => t.id === discussion.activeDraftTabId)!
+        assert(
+          draft.kind === 'draft' && draft.sources.length === 2,
+          'both sources should be persisted'
+        )
+      }
+    }
+  ]
+}
+
 /** Opt-in: exercises the real sites. Enabled with MU7_SMOKE_NET=1. */
 function m2NetSteps(win: BrowserWindow, views: ViewManager): Step[] {
   return [
@@ -771,6 +962,7 @@ export async function runSmoke(
     ...m0Steps(win, store),
     ...m1Steps(win, store),
     ...m2Steps(win, store, views),
+    ...m3Steps(win, store, views),
     // Real sites are only touched when explicitly asked for, so the default run is hermetic.
     ...(process.env.MU7_SMOKE_NET === '1' ? m2NetSteps(win, views) : [])
   ]

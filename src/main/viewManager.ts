@@ -323,6 +323,16 @@ export class ViewManager {
     this.findState.delete(tabId)
   }
 
+  /** Which tab a message came from, resolved by the sending webContents id. */
+  tabIdFor(webContentsId: number): string | null {
+    for (const [id, entry] of this.entries) {
+      if (!entry.view.webContents.isDestroyed() && entry.view.webContents.id === webContentsId) {
+        return id
+      }
+    }
+    return null
+  }
+
   /** Current URL of a live view, used by the calibration flow. */
   currentUrl(tabId: string): string {
     return this.contents(tabId)?.getURL() ?? ''

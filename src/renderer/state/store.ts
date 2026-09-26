@@ -52,6 +52,8 @@ interface AppState {
   setSearchTabLocation: (tabId: string, url: string, query?: string) => void
   setDraftContent: (tabId: string, content: string) => void
   appendToDraft: (tabId: string, text: string, source?: Source) => void
+  /** Append to the focused draft, opening one if the discussion has none. */
+  appendToActiveDraft: (text: string, source?: Source) => void
 
   updateSettings: (patch: Partial<Settings>) => void
 
@@ -124,6 +126,8 @@ export const useApp = create<AppState>((set, get) => ({
     get().applyToActive((ws, d) => W.setDraftContent(ws, d, tabId, content)),
   appendToDraft: (tabId, text, source) =>
     get().applyToActive((ws, d) => W.appendToDraft(ws, d, tabId, text, source)),
+  appendToActiveDraft: (text, source) =>
+    get().applyToActive((ws, d) => W.appendToActiveDraft(ws, d, text, source)),
 
   updateSettings: (patch) => get().apply((ws) => W.updateSettings(ws, patch)),
 

@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain } from 'electron'
 import path from 'node:path'
 import { WorkspaceStore } from './store'
 import { ToolRegistry, buildSearchUrl, deriveSearchUrl } from './tools'
 import { ViewManager, type Bounds, type SyncRequest, type ViewEvent } from './viewManager'
 import { runSmoke } from './smoke'
+import { cleanCopiedText, withSource } from '@shared/text'
 import type { SearchTool, Workspace } from '@shared/types'
 
 const isSmoke = process.env.MU7_SMOKE === '1'
@@ -41,10 +42,10 @@ function createWindow(): BrowserWindow {
     }
   })
 
-  win.once('ready-to-show', () => {
-    // Smoke runs stay hidden unless they are going to screenshot the result.
-    if (!isSmoke || process.env.MU7_SMOKE_SHOT) win.show()
-  })
+  // Smoke runs show the window too: Chromium throttles requestAnimationFrame to a
+  // standstill in a hidden window, which stalls both the bounds sync and the in-page
+  // hover overlay — failures that would never happen in front of a user.
+  win.once('ready-to-show', () => win.show())
 
   views = new ViewManager(win, path.join(__dirname, '../preload/site.js'), (event: ViewEvent) => {
     if (!win.isDestroyed()) win.webContents.send('view:event', event)
@@ -117,6 +118,43 @@ function registerIpc(): void {
     void views?.find(tabId, text, forward, next)
   })
   ipcMain.on('view:stopFind', (_e, tabId: string) => views?.stopFind(tabId))
+
+  // ── copy pipeline ────────────────────────────────────────────────────────
+
+  /**
+   * An embedded page asking to copy something. Main owns the clipboard and is the only
+   * side that can tell which tab the sending page belongs to.
+   */
+  ipcMain.on('site:copy', (event, payload: CopyRequest) => {
+    const text = cleanCopiedText(payload.text ?? '')
+    if (!text || !mainWindow || mainWindow.isDestroyed()) return
+
+    const composed =
+      payload.action === 'copy' ? text : withSource(text, payload.pageTitle ?? '', payload.url ?? '')
+    if (payload.action !== 'to-draft') clipboard.writeText(composed)
+
+    mainWindow.webContents.send('copy:event', {
+      action: payload.action,
+      tabId: views?.tabIdFor(event.sender.id) ?? null,
+      text,
+      pageTitle: payload.pageTitle ?? '',
+      url: payload.url ?? ''
+    })
+  })
+
+  /** Copying from the app's own chrome, where the renderer already has the text. */
+  ipcMain.handle('clipboard:write', (_e, text: string) => {
+    clipboard.writeText(text)
+  })
+
+  ipcMain.handle('clipboard:read', () => clipboard.readText())
+}
+
+interface CopyRequest {
+  action: 'copy' | 'copy-with-source' | 'to-draft'
+  text: string
+  pageTitle: string
+  url: string
 }
 
 void app.whenReady().then(async () => {

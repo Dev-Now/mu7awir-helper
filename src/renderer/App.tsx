@@ -5,6 +5,7 @@ import { Sidebar } from './components/Sidebar'
 import { Splitter } from './components/Splitter'
 import { TabBar } from './components/TabBar'
 import { Toast } from './components/Toast'
+import { useCopyEvents } from './hooks/useCopyEvents'
 import { useViewEvents } from './hooks/useViewEvents'
 import { useApp } from './state/store'
 
@@ -20,6 +21,7 @@ export function App(): React.JSX.Element {
   const updateSettings = useApp((s) => s.updateSettings)
 
   useViewEvents()
+  useCopyEvents()
 
   const contentRef = useRef<HTMLElement>(null)
   /** Non-null only mid-drag, so the splitter stays smooth without touching the store. */

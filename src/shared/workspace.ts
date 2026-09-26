@@ -338,6 +338,25 @@ export function appendToDraft(
   }))
 }
 
+/**
+ * Append to whichever draft is in focus, opening one if the discussion has none.
+ * This is what Ctrl+Enter lands on, so it must never be a dead end.
+ */
+export function appendToActiveDraft(
+  ws: Workspace,
+  discussionId: string,
+  text: string,
+  source?: Source
+): Workspace {
+  if (!text.trim()) return ws
+  const discussion = findDiscussion(ws, discussionId)
+  if (!discussion) return ws
+
+  const next = activeTab(discussion, 'draft') ? ws : addDraftTab(ws, discussionId)
+  const target = activeTab(findDiscussion(next, discussionId)!, 'draft')
+  return target ? appendToDraft(next, discussionId, target.id, text, source) : ws
+}
+
 // ── settings ─────────────────────────────────────────────────────────────────
 
 export function clampSplitRatio(ratio: number): number {

@@ -10,6 +10,7 @@ declare global {
       getNav: () => Record<string, unknown>
       getFind: () => unknown
       getTools: () => import('@shared/types').SearchTool[]
+      readClipboard: () => Promise<string>
       actions: Record<string, (...args: never[]) => unknown>
       flush: () => Promise<void>
     }
