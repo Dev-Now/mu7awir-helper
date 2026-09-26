@@ -33,6 +33,30 @@ export function withSource(text: string, pageTitle: string, url: string): string
   return line.trim() === '—' ? body : `${body}\n\n${line}`
 }
 
+/**
+ * A draft as it goes to the clipboard: the body, optionally followed by the sources
+ * gathered while writing it. Sources are de-duplicated by URL, since quoting a page
+ * twice should not cite it twice.
+ */
+export function composeDraft(content: string, sources: Source[], appendSources: boolean): string {
+  const body = content.trim()
+  if (!appendSources) return body
+
+  const seen = new Set<string>()
+  const unique = sources.filter((s) => {
+    const key = s.url || s.pageTitle
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+  if (unique.length === 0) return body
+
+  const list = unique
+    .map((s, i) => (s.url ? `${i + 1}. ${s.pageTitle || s.url}\n   ${s.url}` : `${i + 1}. ${s.pageTitle}`))
+    .join('\n')
+  return `${body}\n\n———\nالمصادر:\n${list}`
+}
+
 export function makeSource(text: string, pageTitle: string, url: string): Source {
   return {
     text: cleanCopiedText(text),

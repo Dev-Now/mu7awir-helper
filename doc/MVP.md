@@ -316,6 +316,32 @@ When a new search tab is opened with `Ctrl+1..7` and text is selected in the cur
 | Memory growth from many live views | Cap ~8 live `WebContentsView`s; hibernate older tabs to `{url}` and recreate on activation |
 | Node 20.17 vs Vite 7 engine floor | Pin Vite 5 via electron-vite 2.x, or bump Node — decide at M0 |
 
+## Implementation notes (M0–M4)
+
+Findings from building the milestones that the plan could not have predicted.
+
+- **Toolchain pinned to Node 20.17.** electron-vite 5, Electron 44, `@vitejs/plugin-react` 5+
+  and Vitest 5 all require Node ≥ 20.19 or ≥ 22.12. The stack is therefore Electron 38 +
+  electron-vite 3 + Vite 6 + Vitest 3, which needs no system change. `winget upgrade
+  OpenJS.NodeJS.20` (20.20.2 is available) unlocks the current generation when wanted.
+- **CommonJS output, not ESM.** Sandboxed preloads must be CJS, and the site preload
+  injected into third-party pages has to stay sandboxed.
+- **Electron does not emit `found-in-page` for a `WebContentsView`.** Verified against
+  Electron 38: the identical call on a BrowserWindow's own webContents emits, the view's
+  never does, even though matches are highlighted correctly. The find bar therefore counts
+  matches in-page and tracks the active ordinal itself; Chromium still does the
+  highlighting and the next/previous stepping.
+- **Chromium throttles `requestAnimationFrame` to a standstill in a hidden window.** This
+  stalls both the view bounds sync and the in-page hover overlay. The bounds sync now
+  schedules a 32 ms timer alongside the rAF, and the smoke run shows its window.
+- **`position: fixed` blockifies `inline-flex` to `flex`** — relevant when asserting on the
+  hover button's computed style.
+- **Verification**: 72 unit tests plus `npm run smoke`, a 40-step acceptance run that
+  launches the real app against a throwaway user-data directory, drives the DOM and the
+  embedded pages, and checks the clipboard and the file on disk. It is hermetic by default
+  (local `data:` URLs); `MU7_SMOKE_NET=1` adds a live-site run, and `MU7_SMOKE_SHOT=<path>`
+  captures screenshots. `npm run verify` chains typecheck, tests, build and smoke.
+
 ## Out of scope for the MVP
 
 Cross-discussion search / command palette (`Ctrl+K`), alternate layouts (tabs-only, or side-by-side instead of stacked), cloud sync, the مدونة الفقه المالكي source, rich-text drafts, macOS/Linux packaging, and injecting copy buttons into PDF viewers.

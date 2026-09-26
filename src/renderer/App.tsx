@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
 import * as W from '@shared/workspace'
+import { DraftPane } from './components/DraftPane'
 import { SearchPane } from './components/SearchPane'
 import { Sidebar } from './components/Sidebar'
 import { Splitter } from './components/Splitter'
-import { TabBar } from './components/TabBar'
 import { Toast } from './components/Toast'
 import { useCopyEvents } from './hooks/useCopyEvents'
 import { useViewEvents } from './hooks/useViewEvents'
@@ -17,7 +17,6 @@ const SPLITTER_PX = 6
  */
 export function App(): React.JSX.Element {
   const workspace = useApp((s) => s.workspace)
-  const addDraftTab = useApp((s) => s.addDraftTab)
   const updateSettings = useApp((s) => s.updateSettings)
 
   useViewEvents()
@@ -29,8 +28,6 @@ export function App(): React.JSX.Element {
 
   const discussion = W.activeDiscussion(workspace)
   const ratio = previewRatio ?? workspace.settings.splitRatio
-  const draftTabs = discussion ? W.tabsOfKind(discussion, 'draft') : []
-  const activeDraft = discussion ? W.activeTab(discussion, 'draft') : null
 
   return (
     <div
@@ -56,20 +53,7 @@ export function App(): React.JSX.Element {
           }}
         />
 
-        <section className="pane" data-testid="draft-pane">
-          <TabBar
-            kind="draft"
-            tabs={draftTabs}
-            activeId={discussion?.activeDraftTabId ?? null}
-            newTitle="رد جديد"
-            onNew={discussion ? () => addDraftTab() : undefined}
-          />
-          <div className="pane__body" data-testid="draft-view">
-            <div className="pane__empty" dir="auto">
-              {activeDraft ? activeDraft.title : 'لا يوجد رد بعد'}
-            </div>
-          </div>
-        </section>
+        <DraftPane discussion={discussion} />
       </main>
 
       <Toast />

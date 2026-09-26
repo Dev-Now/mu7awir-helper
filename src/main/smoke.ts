@@ -891,6 +891,206 @@ function m3Steps(win: BrowserWindow, store: WorkspaceStore, views: ViewManager):
   ]
 }
 
+// ── M4: draft editor ─────────────────────────────────────────────────────────
+
+/** Type into the RTL editor the way React's controlled textarea expects. */
+async function typeDraft(win: BrowserWindow, text: string): Promise<void> {
+  await evaluate(
+    win,
+    `(() => {
+       const el = document.querySelector('${sel('draft-editor')}')
+       if (!el) throw new Error('the draft editor is not mounted')
+       const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set
+       setter.call(el, ${JSON.stringify(text)})
+       el.dispatchEvent(new Event('input', { bubbles: true }))
+     })()`
+  )
+}
+
+const draftContent = (win: BrowserWindow): Promise<string> =>
+  evaluate(
+    win,
+    `(() => {
+       const ws = window.__mu7.getWorkspace()
+       const d = ws.discussions.find((x) => x.id === ws.activeDiscussionId)
+       const t = d && d.tabs.find((t) => t.id === d.activeDraftTabId)
+       return t ? t.content : ''
+     })()`
+  )
+
+function m4Steps(win: BrowserWindow, store: WorkspaceStore): Step[] {
+  const VOCALISED = 'الصَّبْرُ مِفْتَاحُ الفَرَجِ'
+
+  return [
+    {
+      name: 'M4 the editor renders right-to-left with the excerpts already in it',
+      run: async () => {
+        assertEqual(await evaluate<number>(win, count('draft-editor')), 1, 'one editor')
+        assertEqual(
+          await evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').dir`),
+          'rtl',
+          'the editor must be RTL'
+        )
+        assert(
+          (await evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').value`)).includes(
+            'فقرة أخرى طويلة'
+          ),
+          'the editor should show the excerpts M3 appended'
+        )
+      }
+    },
+    {
+      name: 'M4 typing is committed to the workspace and survives a reload',
+      run: async () => {
+        await typeDraft(win, VOCALISED)
+        // Nothing should reach the store while the debounce is still open.
+        assert(
+          !(await draftContent(win)).includes(VOCALISED),
+          'typing should not hit the store on every keystroke'
+        )
+
+        await waitFor(
+          win,
+          `(() => {
+             const ws = window.__mu7.getWorkspace()
+             const d = ws.discussions.find((x) => x.id === ws.activeDiscussionId)
+             const t = d.tabs.find((t) => t.id === d.activeDraftTabId)
+             return t.content === ${JSON.stringify(VOCALISED)}
+           })()`,
+          'the debounced commit to land'
+        )
+
+        await flush(win)
+        const saved = await readWorkspaceFile(store)
+        const discussion = saved.discussions.find((d) => d.id === saved.activeDiscussionId)!
+        const draft = discussion.tabs.find((t) => t.id === discussion.activeDraftTabId)!
+        assert(draft.kind === 'draft' && draft.content === VOCALISED, 'the draft should be on disk')
+        // Tashkeel must survive the editor, the store and JSON.
+        assert(draft.kind === 'draft' && draft.content.includes('َّ'), 'diacritics preserved on disk')
+      }
+    },
+    {
+      name: 'M4 the character counter tracks the draft',
+      run: async () => {
+        const shown = await evaluate<string>(
+          win,
+          `document.querySelector('${sel('draft-count')}').textContent`
+        )
+        assert(shown.startsWith(String(VOCALISED.length)), `counter shows ${JSON.stringify(shown)}`)
+      }
+    },
+    {
+      name: 'M4 switching drafts keeps each tab its own text',
+      run: async () => {
+        await click(win, 'new-draft-tab')
+        await sleep(80)
+        assertEqual(await evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').value`), '', 'a new draft starts empty')
+
+        await typeDraft(win, 'الرد الثاني')
+        await sleep(COMMIT_WAIT)
+
+        await click(win, 'draft-tab', 0)
+        await sleep(120)
+        assertEqual(
+          await evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').value`),
+          VOCALISED,
+          'the first draft should be unchanged'
+        )
+
+        await click(win, 'draft-tab', 1)
+        await sleep(120)
+        assertEqual(
+          await evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').value`),
+          'الرد الثاني',
+          'the second draft should keep its own text'
+        )
+      }
+    },
+    {
+      name: 'M4 an unfinished edit is committed when the tab changes',
+      run: async () => {
+        // Type and switch away immediately, inside the debounce window.
+        await typeDraft(win, 'لم يُحفظ بعد')
+        await click(win, 'draft-tab', 0)
+        await sleep(150)
+        await click(win, 'draft-tab', 1)
+        await sleep(150)
+
+        assertEqual(
+          await evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').value`),
+          'لم يُحفظ بعد',
+          'the pending edit must not be lost when leaving the tab'
+        )
+      }
+    },
+    {
+      name: 'M4 copy-all puts the draft and its sources on the clipboard',
+      run: async () => {
+        await evaluate(win, `window.api.writeClipboard('')`)
+        await click(win, 'draft-tab', 0) // the draft carrying M3's sources
+        await sleep(120)
+
+        await click(win, 'copy-draft')
+        await sleep(200)
+        const withList = await evaluate<string>(win, `window.__mu7.readClipboard()`)
+        assert(withList.includes(VOCALISED), 'the body should be copied')
+        assert(withList.includes('المصادر:'), `expected a source list, got ${JSON.stringify(withList.slice(0, 80))}`)
+        assert(withList.includes('data:text/html'), 'the recorded source URLs should be listed')
+
+        // Unticking the box drops the footnotes.
+        await click(win, 'append-sources')
+        await sleep(80)
+        await click(win, 'copy-draft')
+        await sleep(200)
+        const bodyOnly = await evaluate<string>(win, `window.__mu7.readClipboard()`)
+        assert(bodyOnly.includes(VOCALISED), 'the body should still be copied')
+        assert(!bodyOnly.includes('المصادر:'), 'the source list should be omitted')
+        await click(win, 'append-sources')
+      }
+    },
+    {
+      name: 'M4 Ctrl+Shift+A copies the whole draft from the app chrome',
+      run: async () => {
+        await evaluate(win, `window.api.writeClipboard('')`)
+        await evaluate(
+          win,
+          `window.dispatchEvent(new KeyboardEvent('keydown', {
+             key: 'A', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true
+           }))`
+        )
+        await sleep(250)
+        assert(
+          (await evaluate<string>(win, `window.__mu7.readClipboard()`)).includes(VOCALISED),
+          'the shortcut should copy the draft'
+        )
+      }
+    },
+    {
+      name: 'M4 pasting inserts plain text at the caret',
+      run: async () => {
+        await evaluate(
+          win,
+          `(() => {
+             const el = document.querySelector('${sel('draft-editor')}')
+             el.focus()
+             el.setSelectionRange(0, 0)
+             const data = new DataTransfer()
+             data.setData('text/plain', 'مقدمة: ')
+             el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+           })()`
+        )
+        await sleep(COMMIT_WAIT)
+        const value = await evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').value`)
+        assert(value.startsWith('مقدمة: '), `paste should land at the caret, got ${JSON.stringify(value.slice(0, 30))}`)
+        assert(value.includes(VOCALISED), 'the existing text should be kept')
+      }
+    }
+  ]
+}
+
+/** Comfortably longer than the editor's commit debounce. */
+const COMMIT_WAIT = 500
+
 /** Opt-in: exercises the real sites. Enabled with MU7_SMOKE_NET=1. */
 function m2NetSteps(win: BrowserWindow, views: ViewManager): Step[] {
   return [
@@ -963,6 +1163,7 @@ export async function runSmoke(
     ...m1Steps(win, store),
     ...m2Steps(win, store, views),
     ...m3Steps(win, store, views),
+    ...m4Steps(win, store),
     // Real sites are only touched when explicitly asked for, so the default run is hermetic.
     ...(process.env.MU7_SMOKE_NET === '1' ? m2NetSteps(win, views) : [])
   ]

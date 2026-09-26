@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanCopiedText, formatSourceLine, makeSource, withSource } from '@shared/text'
+import { cleanCopiedText, composeDraft, formatSourceLine, makeSource, withSource } from '@shared/text'
 import * as W from '@shared/workspace'
 import type { DraftTab } from '@shared/types'
 
@@ -119,5 +119,41 @@ describe('appendToActiveDraft', () => {
     const base = W.createDiscussion(W.defaultWorkspace(), 'حوار')
     const id = base.activeDiscussionId!
     expect(W.appendToActiveDraft(base, id, '   ')).toBe(base)
+  })
+})
+
+describe('composeDraft', () => {
+  const source = (url: string, pageTitle = 'الباحث الحديثي') => ({
+    text: 'نص',
+    pageTitle,
+    url,
+    at: '2026-09-26T00:00:00.000Z'
+  })
+
+  it('returns the trimmed body when sources are switched off', () => {
+    expect(composeDraft('  الرد  ', [source('https://a')], false)).toBe('الرد')
+  })
+
+  it('returns the body alone when there are no sources', () => {
+    expect(composeDraft('الرد', [], true)).toBe('الرد')
+  })
+
+  it('appends a numbered source list', () => {
+    expect(composeDraft('الرد', [source('https://a'), source('https://b', 'بصائر')], true)).toBe(
+      'الرد\n\n———\nالمصادر:\n1. الباحث الحديثي\n   https://a\n2. بصائر\n   https://b'
+    )
+  })
+
+  it('cites a page once even when quoted repeatedly', () => {
+    const composed = composeDraft('الرد', [source('https://a'), source('https://a')], true)
+    expect(composed.match(/https:\/\/a/g)).toHaveLength(1)
+  })
+
+  it('falls back to the title when a source has no URL', () => {
+    expect(composeDraft('الرد', [source('', 'مصدر ورقي')], true)).toContain('1. مصدر ورقي')
+  })
+
+  it('keeps diacritics in the body', () => {
+    expect(composeDraft('الصَّبْرُ', [], true)).toBe('الصَّبْرُ')
   })
 })

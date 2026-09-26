@@ -524,3 +524,61 @@ button {
 .toast--warn {
   border-left-color: var(--danger);
 }
+
+/* ── draft editor ──────────────────────────────────────────────────────── */
+
+.draftbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-ar);
+}
+
+.btn--small {
+  padding: 2px 12px;
+  font-size: 12px;
+}
+
+.draftbar__toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.draftbar__toggle input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.draftbar__count {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.draft-editor {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 14px 18px;
+  border: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ar);
+  font-size: 17px;
+  line-height: 1.95;
+  outline: none;
+  resize: none;
+}
+
+.draft-editor::placeholder {
+  color: var(--text-faint);
+}
