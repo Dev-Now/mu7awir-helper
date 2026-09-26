@@ -32,7 +32,8 @@ function createWindow(): BrowserWindow {
   })
 
   win.once('ready-to-show', () => {
-    if (!isSmoke) win.show()
+    // Smoke runs stay hidden unless they are going to screenshot the result.
+    if (!isSmoke || process.env.MU7_SMOKE_SHOT) win.show()
   })
 
   const devUrl = process.env['ELECTRON_RENDERER_URL']
