@@ -57,6 +57,10 @@ interface AppState {
 
   updateSettings: (patch: Partial<Settings>) => void
 
+  /** Set by the open draft editor so dictation can insert at the caret. */
+  draftInsert: ((text: string) => boolean) | null
+  setDraftInsert: (fn: ((text: string) => boolean) | null) => void
+
   setTools: (tools: SearchTool[]) => void
   setNav: (tabId: string, nav: NavState) => void
   setFind: (find: FindState | null) => void
@@ -130,6 +134,9 @@ export const useApp = create<AppState>((set, get) => ({
     get().applyToActive((ws, d) => W.appendToActiveDraft(ws, d, text, source)),
 
   updateSettings: (patch) => get().apply((ws) => W.updateSettings(ws, patch)),
+
+  draftInsert: null,
+  setDraftInsert: (fn) => set({ draftInsert: fn }),
 
   setTools: (tools) => set({ tools }),
   setNav: (tabId, nav) => set({ nav: { ...get().nav, [tabId]: nav } }),

@@ -1,10 +1,11 @@
-import { app, BrowserWindow, clipboard, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, session } from 'electron'
 import path from 'node:path'
 import { WorkspaceStore } from './store'
+import { Dictation } from './dictation'
 import { RududIndex } from './rududIndex'
 import { ToolRegistry, buildSearchUrl, deriveSearchUrl } from './tools'
 import { ViewManager, type Bounds, type SyncRequest, type ViewEvent } from './viewManager'
-import { runSmoke } from './smoke'
+import { fakeWhisperSpawn, runSmoke } from './smoke'
 import { cleanCopiedText, withSource } from '@shared/text'
 import type { SearchTool, Workspace } from '@shared/types'
 
@@ -14,6 +15,7 @@ let mainWindow: BrowserWindow | null = null
 let store: WorkspaceStore
 let tools: ToolRegistry
 let rudud: RududIndex
+let dictation: Dictation
 let views: ViewManager | null = null
 
 /** Main keeps a mirror of the renderer's state so it can flush on quit. */
@@ -86,6 +88,12 @@ function registerIpc(): void {
   // ── tools ────────────────────────────────────────────────────────────────
 
   ipcMain.handle('tools:list', (): SearchTool[] => tools.list())
+
+  ipcMain.handle('dictation:status', () => dictation.refresh())
+  ipcMain.handle('dictation:install', () => dictation.install())
+  ipcMain.handle('dictation:transcribe', (_e, wav: Uint8Array) =>
+    dictation.transcribe(Buffer.from(wav))
+  )
 
   ipcMain.handle('rudud:search', (_e, query: string) => rudud.search(query))
   ipcMain.handle('rudud:status', () => ({ available: rudud.available, size: rudud.size }))
@@ -166,6 +174,27 @@ void app.whenReady().then(async () => {
   store = new WorkspaceStore(app.getPath('userData'))
   tools = new ToolRegistry(app.getPath('userData'), resourcePath('resources', 'tools.default.json'))
   await tools.load()
+
+  // Dictation needs the microphone; embedded sites live in another partition and get
+  // nothing. Without this Electron denies getUserMedia outright.
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
+    callback(permission === 'media' && contents === mainWindow?.webContents)
+  })
+  session.fromPartition('persist:sites').setPermissionRequestHandler((_c, _p, callback) =>
+    callback(false)
+  )
+
+  const fakeTranscript = process.env.MU7_FAKE_WHISPER
+  dictation = new Dictation(
+    app.getPath('userData'),
+    (status) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('dictation:status', status)
+      }
+    },
+    fakeTranscript ? fakeWhisperSpawn(fakeTranscript) : undefined
+  )
+  await dictation.refresh()
 
   rudud = new RududIndex()
   if (await rudud.load(resourcePath('resources', 'rudud.json'))) {

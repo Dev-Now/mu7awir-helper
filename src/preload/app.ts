@@ -1,6 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { SearchTool, Workspace } from '@shared/types'
 
+interface DictationStatus {
+  ready: boolean
+  binaryPath: string | null
+  modelPath: string | null
+  progress: { what: string; received: number; total: number } | null
+  error: string | null
+}
+
 interface Bounds {
   x: number
   y: number
@@ -30,6 +38,15 @@ const api = {
   searchRudud: (query: string): Promise<unknown> => ipcRenderer.invoke('rudud:search', query),
   rududStatus: (): Promise<{ available: boolean; size: number }> =>
     ipcRenderer.invoke('rudud:status'),
+
+  dictationStatus: (): Promise<DictationStatus> => ipcRenderer.invoke('dictation:status'),
+  installDictation: (): Promise<DictationStatus> => ipcRenderer.invoke('dictation:install'),
+  transcribe: (wav: Uint8Array): Promise<string> => ipcRenderer.invoke('dictation:transcribe', wav),
+  onDictationStatus: (handler: (status: DictationStatus) => void): (() => void) => {
+    const listener = (_e: unknown, status: DictationStatus): void => handler(status)
+    ipcRenderer.on('dictation:status', listener)
+    return () => ipcRenderer.removeListener('dictation:status', listener)
+  },
 
   writeClipboard: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),
   readClipboard: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),

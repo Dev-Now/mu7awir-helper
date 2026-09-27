@@ -9,9 +9,42 @@
 import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
 import { promises as fs } from 'node:fs'
+import { statSync } from 'node:fs'
+import { EventEmitter } from 'node:events'
+import type { SpawnLike } from './dictation'
 import type { WorkspaceStore } from './store'
 import type { ViewManager } from './viewManager'
 import type { Workspace } from '@shared/types'
+
+/**
+ * Stands in for whisper-cli during a smoke run (MU7_FAKE_WHISPER). It reads the clip it
+ * was handed and reports its size, so the assertion proves real audio was captured,
+ * resampled and encoded — only the transcription itself is faked.
+ */
+export function fakeWhisperSpawn(text: string): SpawnLike {
+  return ((_command: string, args: string[]) => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter
+      stderr: EventEmitter
+      kill: () => void
+    }
+    child.stdout = new EventEmitter()
+    child.stderr = new EventEmitter()
+    child.kill = () => {}
+
+    let bytes = 0
+    try {
+      bytes = statSync(args[args.indexOf('-f') + 1]).size
+    } catch {
+      /* reported as zero below */
+    }
+    setTimeout(() => {
+      child.stdout.emit('data', Buffer.from(`${text} [${bytes}]`))
+      child.emit('close', 0)
+    }, 20)
+    return child
+  }) as unknown as SpawnLike
+}
 
 interface Step {
   name: string
@@ -1232,6 +1265,137 @@ function m5Steps(win: BrowserWindow, views: ViewManager): Step[] {
   ]
 }
 
+// ── M6: dictation ────────────────────────────────────────────────────────────
+
+/** Press or release a key on the app chrome. */
+const pressKey = (win: BrowserWindow, key: string, type: 'keydown' | 'keyup'): Promise<void> =>
+  evaluate(
+    win,
+    `window.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, {
+       key: ${JSON.stringify(key)}, bubbles: true, cancelable: true
+     }))`
+  )
+
+const hudPhase = (win: BrowserWindow): Promise<string | null> =>
+  evaluate(
+    win,
+    `(() => {
+       const el = document.querySelector('${sel('dictation-hud')}')
+       return el ? el.dataset.phase : null
+     })()`
+  )
+
+function m6Steps(win: BrowserWindow): Step[] {
+  return [
+    {
+      name: 'M6 dictation reports itself ready once its assets are present',
+      run: async () => {
+        const status = await evaluate<{ ready: boolean; modelPath: string | null }>(
+          win,
+          `window.api.dictationStatus()`
+        )
+        assert(status.ready, 'the stand-in whisper assets should be detected')
+        assert(status.modelPath?.includes('ggml-'), `model path: ${status.modelPath}`)
+      }
+    },
+    {
+      name: 'M6 holding F4 starts recording and shows the meter',
+      run: async () => {
+        // Put the caret mid-draft so the insertion point can be checked later.
+        await click(win, 'draft-tab', 0)
+        await sleep(120)
+        await typeDraft(win, 'قبل بعد')
+        await sleep(COMMIT_WAIT)
+        await evaluate(
+          win,
+          `(() => {
+             const el = document.querySelector('${sel('draft-editor')}')
+             el.focus()
+             el.setSelectionRange(4, 4)
+           })()`
+        )
+
+        await pressKey(win, 'F4', 'keydown')
+        await waitFor(
+          win,
+          `(document.querySelector('${sel('dictation-hud')}') || {}).dataset?.phase === 'recording'`,
+          'the recording HUD'
+        )
+      }
+    },
+    {
+      name: 'M6 releasing F4 transcribes real captured audio into the draft',
+      run: async () => {
+        await sleep(900) // longer than the minimum clip, so the clip is accepted
+        await pressKey(win, 'F4', 'keyup')
+
+        await waitFor(win, `${count('dictation-hud')} === 0`, 'dictation to finish', 30_000)
+
+        const value = await evaluate<string>(
+          win,
+          `document.querySelector('${sel('draft-editor')}').value`
+        )
+        assert(value.includes('النص المملى'), `expected the transcript, got ${JSON.stringify(value)}`)
+
+        // The stand-in reports the clip size it was handed: proof that real audio was
+        // captured, resampled to 16 kHz and WAV-encoded before reaching main.
+        const size = Number(/\[(\d+)\]/.exec(value)?.[1] ?? 0)
+        assert(size > 44, `the WAV should carry samples, got ${size} bytes`)
+
+        // It must land at the caret, not at the end.
+        assert(value.startsWith('قبل '), `insertion point wrong: ${JSON.stringify(value.slice(0, 20))}`)
+        assert(value.trimEnd().endsWith('بعد'), 'the text after the caret should be kept')
+      }
+    },
+    {
+      name: 'M6 Escape abandons a recording without inserting anything',
+      run: async () => {
+        const before = await evaluate<string>(
+          win,
+          `document.querySelector('${sel('draft-editor')}').value`
+        )
+        await pressKey(win, 'F4', 'keydown')
+        await waitFor(
+          win,
+          `(document.querySelector('${sel('dictation-hud')}') || {}).dataset?.phase === 'recording'`,
+          'the recording HUD'
+        )
+        await pressKey(win, 'Escape', 'keydown')
+        await waitFor(win, `${count('dictation-hud')} === 0`, 'the HUD to close')
+        await pressKey(win, 'F4', 'keyup')
+        await sleep(400)
+
+        assertEqual(
+          await evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').value`),
+          before,
+          'a cancelled recording must not change the draft'
+        )
+      }
+    },
+    {
+      name: 'M6 a too-short press is rejected rather than transcribed',
+      run: async () => {
+        const before = await evaluate<string>(
+          win,
+          `document.querySelector('${sel('draft-editor')}').value`
+        )
+        await pressKey(win, 'F4', 'keydown')
+        await sleep(120) // well under the minimum clip length
+        await pressKey(win, 'F4', 'keyup')
+        await waitFor(win, `${count('dictation-hud')} === 0`, 'the HUD to close')
+        await sleep(300)
+
+        assertEqual(
+          await evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').value`),
+          before,
+          'a mis-press must not insert anything'
+        )
+        assert((await hudPhase(win)) === null, 'the HUD should be gone')
+      }
+    }
+  ]
+}
+
 /** Opt-in: exercises the real sites. Enabled with MU7_SMOKE_NET=1. */
 function m2NetSteps(win: BrowserWindow, views: ViewManager): Step[] {
   return [
@@ -1306,6 +1470,7 @@ export async function runSmoke(
     ...m3Steps(win, store, views),
     ...m4Steps(win, store),
     ...m5Steps(win, views),
+    ...m6Steps(win),
     // Real sites are only touched when explicitly asked for, so the default run is hermetic.
     ...(process.env.MU7_SMOKE_NET === '1' ? m2NetSteps(win, views) : [])
   ]

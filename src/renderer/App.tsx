@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react'
 import * as W from '@shared/workspace'
+import { DictationHud } from './components/DictationHud'
 import { DraftPane } from './components/DraftPane'
 import { SearchPane } from './components/SearchPane'
 import { Sidebar } from './components/Sidebar'
 import { Splitter } from './components/Splitter'
 import { Toast } from './components/Toast'
 import { useCopyEvents } from './hooks/useCopyEvents'
+import { useDictation } from './hooks/useDictation'
 import { useViewEvents } from './hooks/useViewEvents'
 import { useApp } from './state/store'
 
@@ -21,6 +23,7 @@ export function App(): React.JSX.Element {
 
   useViewEvents()
   useCopyEvents()
+  const dictation = useDictation()
 
   const contentRef = useRef<HTMLElement>(null)
   /** Non-null only mid-drag, so the splitter stays smooth without touching the store. */
@@ -56,6 +59,7 @@ export function App(): React.JSX.Element {
         <DraftPane discussion={discussion} />
       </main>
 
+      <DictationHud {...dictation} />
       <Toast />
     </div>
   )

@@ -105,6 +105,8 @@ export function DraftPane({ discussion }: DraftPaneProps): React.JSX.Element {
  */
 function DraftEditor({ draft }: { draft: DraftTab }): React.JSX.Element {
   const setDraftContent = useApp((s) => s.setDraftContent)
+  const setDraftInsert = useApp((s) => s.setDraftInsert)
+  const area = useRef<HTMLTextAreaElement>(null)
   const [value, setValue] = useState(draft.content)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** What we last handed to the store, used to tell our echoes from outside edits. */
@@ -130,6 +132,24 @@ function DraftEditor({ draft }: { draft: DraftTab }): React.JSX.Element {
   // Never lose the tail of a sentence when the pane unmounts or the tab changes.
   useEffect(() => () => commit(pending.current), [])
 
+  // Let dictation drop its text at the caret rather than at the end.
+  useEffect(() => {
+    setDraftInsert((text) => {
+      const el = area.current
+      if (!el) return false
+      const at = el.selectionStart ?? pending.current.length
+      const end = el.selectionEnd ?? at
+      const before = pending.current.slice(0, at)
+      const spacer = before && !/\s$/.test(before) ? ' ' : ''
+      const next = before + spacer + text + pending.current.slice(end)
+      onChange(next)
+      const caret = at + spacer.length + text.length
+      requestAnimationFrame(() => el.setSelectionRange(caret, caret))
+      return true
+    })
+    return () => setDraftInsert(null)
+  })
+
   const onChange = (next: string): void => {
     pending.current = next
     setValue(next)
@@ -139,6 +159,7 @@ function DraftEditor({ draft }: { draft: DraftTab }): React.JSX.Element {
 
   return (
     <textarea
+      ref={area}
       className="draft-editor"
       data-testid="draft-editor"
       dir="rtl"

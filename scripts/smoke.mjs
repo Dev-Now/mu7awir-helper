@@ -4,7 +4,7 @@
  * gate that unit tests cannot give us.
  */
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,11 +14,34 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const userData = mkdtempSync(path.join(tmpdir(), 'mu7awir-smoke-'))
 const TIMEOUT_MS = 90_000
 
-const child = spawn(electron, ['.', `--user-data-dir=${userData}`], {
-  cwd: root,
-  env: { ...process.env, MU7_SMOKE: '1', ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
-  stdio: ['ignore', 'pipe', 'pipe']
-})
+// Stand in for the whisper assets so the dictation path can run without a 600MB
+// download. The transcription is faked; everything before it is real.
+const FAKE_TRANSCRIPT = 'النص المملى'
+const whisperDir = path.join(userData, 'whisper')
+mkdirSync(whisperDir, { recursive: true })
+writeFileSync(path.join(whisperDir, 'whisper-cli.exe'), '')
+writeFileSync(path.join(whisperDir, 'ggml-fake.bin'), '')
+
+const child = spawn(
+  electron,
+  [
+    '.',
+    `--user-data-dir=${userData}`,
+    // A synthetic microphone, so the real capture pipeline runs unattended.
+    '--use-fake-device-for-media-stream',
+    '--use-fake-ui-for-media-stream'
+  ],
+  {
+    cwd: root,
+    env: {
+      ...process.env,
+      MU7_SMOKE: '1',
+      MU7_FAKE_WHISPER: FAKE_TRANSCRIPT,
+      ELECTRON_DISABLE_SECURITY_WARNINGS: '1'
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  }
+)
 
 let output = ''
 const relay = (chunk) => {
