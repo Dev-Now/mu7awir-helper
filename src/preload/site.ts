@@ -117,18 +117,20 @@ function install(): void {
     return null
   }
 
-  let scheduled = false
+  // Throttled with a timer rather than requestAnimationFrame: Chromium throttles rAF
+  // to a standstill whenever the window is unfocused or occluded, which would freeze
+  // the button mid-page. Hover only needs debouncing, not frame sync.
+  let scheduled: ReturnType<typeof setTimeout> | null = null
   const onPointerMove = (event: MouseEvent): void => {
     if (scheduled) return
-    scheduled = true
-    requestAnimationFrame(() => {
-      scheduled = false
+    scheduled = setTimeout(() => {
+      scheduled = null
       const next = blockFor(event.target)
       if (next === block) return
       block = next
       if (!block) hide()
       else place()
-    })
+    }, 16)
   }
 
   button.addEventListener('click', (event) => {

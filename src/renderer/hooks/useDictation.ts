@@ -86,31 +86,29 @@ export function useDictation(): DictationState {
     }
   }, [appendToActiveDraft, showToast])
 
-  // F4 is push-to-talk; Escape abandons the clip.
+  // Both edges of F4 are matched in main and relayed here, so push-to-talk works even
+  // while focus is inside an embedded search page.
+  useEffect(
+    () =>
+      window.api.onDictationKey((edge) => {
+        if (edge === 'down') void start()
+        else void stop()
+      }),
+    [start, stop]
+  )
+
+  // Escape abandons the clip.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'F4' && !event.repeat) {
-        event.preventDefault()
-        void start()
-      } else if (event.key === 'Escape' && phase === 'recording') {
+      if (event.key === 'Escape' && phase === 'recording') {
         recorder.current?.cancel()
         setPhase('idle')
         showToast('أُلغي التسجيل')
       }
     }
-    const onKeyUp = (event: KeyboardEvent): void => {
-      if (event.key === 'F4') {
-        event.preventDefault()
-        void stop()
-      }
-    }
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('keyup', onKeyUp)
-    }
-  }, [phase, showToast, start, stop])
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [phase, showToast])
 
   // Drive the level meter only while it is on screen.
   useEffect(() => {

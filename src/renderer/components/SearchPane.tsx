@@ -25,11 +25,12 @@ export function SearchPane({ discussion }: SearchPaneProps): React.JSX.Element {
   const setFind = useApp((s) => s.setFind)
   const showToast = useApp((s) => s.showToast)
 
+  const ui = useApp((s) => s.ui)
+  const setUi = useApp((s) => s.setUi)
   const hostRef = useRef<HTMLDivElement>(null)
-  const [promptOpen, setPromptOpen] = useState(false)
-  const [findOpen, setFindOpen] = useState(false)
   const [findText, setFindText] = useState('')
   const [urlDraft, setUrlDraft] = useState<string | null>(null)
+  const { promptOpen, findOpen, settingsOpen } = ui
 
   const tabs = discussion ? W.tabsOfKind(discussion, 'search') : []
   const activeTab = discussion ? W.activeTab(discussion, 'search') : null
@@ -43,7 +44,9 @@ export function SearchPane({ discussion }: SearchPaneProps): React.JSX.Element {
     hostRef,
     tabId: activeTab?.id ?? null,
     initialUrl: activeTab?.url ?? '',
-    visible: !!activeTab && !isLocal && !promptOpen
+    // Any renderer overlay must hide the view: it is an OS-level layer that would
+    // otherwise be painted straight over the top.
+    visible: !!activeTab && !isLocal && !promptOpen && !settingsOpen
   })
 
   // Closing the find bar clears the page's highlights.
@@ -61,7 +64,7 @@ export function SearchPane({ discussion }: SearchPaneProps): React.JSX.Element {
       query: query.trim(),
       url
     })
-    setPromptOpen(false)
+    setUi({ promptOpen: false })
   }
 
   const calibrate = async (): Promise<void> => {
@@ -82,13 +85,17 @@ export function SearchPane({ discussion }: SearchPaneProps): React.JSX.Element {
   }
 
   return (
-    <section className="pane" data-testid="search-pane">
+    <section
+      className="pane"
+      data-testid="search-pane"
+      onPointerDownCapture={() => setUi({ focusedPane: 'search' })}
+    >
       <TabBar
         kind="search"
         tabs={tabs}
         activeId={discussion?.activeSearchTabId ?? null}
         newTitle="بحث جديد"
-        onNew={discussion ? () => setPromptOpen(true) : undefined}
+        onNew={discussion ? () => setUi({ promptOpen: true, promptToolId: null, promptQuery: '' }) : undefined}
       />
 
       {activeTab && !isLocal && (
@@ -161,13 +168,13 @@ export function SearchPane({ discussion }: SearchPaneProps): React.JSX.Element {
                 onKeyDown={(e) => {
                   e.stopPropagation()
                   if (e.key === 'Enter') runFind(findText, true, !e.shiftKey)
-                  else if (e.key === 'Escape') setFindOpen(false)
+                  else if (e.key === 'Escape') setUi({ findOpen: false })
                 }}
               />
               <span className="findbar__count" data-testid="find-count">
                 {find && findText ? `${find.activeMatchOrdinal}/${find.matches}` : ''}
               </span>
-              <button type="button" className="icon-btn" title="إغلاق" onClick={() => setFindOpen(false)}>
+              <button type="button" className="icon-btn" title="إغلاق" onClick={() => setUi({ findOpen: false })}>
                 ✕
               </button>
             </span>
@@ -177,7 +184,7 @@ export function SearchPane({ discussion }: SearchPaneProps): React.JSX.Element {
               className="icon-btn"
               title="بحث في الصفحة (Ctrl+F)"
               data-testid="find-toggle"
-              onClick={() => setFindOpen(true)}
+              onClick={() => setUi({ findOpen: true })}
             >
               🔍
             </button>
@@ -205,8 +212,10 @@ export function SearchPane({ discussion }: SearchPaneProps): React.JSX.Element {
         {promptOpen && (
           <NewSearchPrompt
             tools={tools}
+            initialToolId={ui.promptToolId}
+            initialQuery={ui.promptQuery}
             onSubmit={(picked, query) => void openSearch(picked, query)}
-            onCancel={() => setPromptOpen(false)}
+            onCancel={() => setUi({ promptOpen: false })}
           />
         )}
 

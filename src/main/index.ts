@@ -4,6 +4,7 @@ import { WorkspaceStore } from './store'
 import { Dictation } from './dictation'
 import { RududIndex } from './rududIndex'
 import { ToolRegistry, buildSearchUrl, deriveSearchUrl } from './tools'
+import { SHORTCUTS, resolveShortcut } from './shortcuts'
 import { ViewManager, type Bounds, type SyncRequest, type ViewEvent } from './viewManager'
 import { fakeWhisperSpawn, runSmoke } from './smoke'
 import { cleanCopiedText, withSource } from '@shared/text'
@@ -51,9 +52,53 @@ function createWindow(): BrowserWindow {
   // hover overlay — failures that would never happen in front of a user.
   win.once('ready-to-show', () => win.show())
 
-  views = new ViewManager(win, path.join(__dirname, '../preload/site.js'), (event: ViewEvent) => {
-    if (!win.isDestroyed()) win.webContents.send('view:event', event)
-  })
+  /**
+   * Shortcut matching lives here rather than in the renderer so that keys keep working
+   * when focus is inside an embedded page — which, in a browser-shaped app, is most of
+   * the time. `fromView` is the page's contents when the key came from a search view,
+   * which lets tool shortcuts pick up the current text selection.
+   */
+  const handleInput = (
+    event: Electron.Event,
+    input: Electron.Input,
+    fromView?: Electron.WebContents
+  ): void => {
+    const hit = resolveShortcut(input)
+    if (!hit || win.isDestroyed()) return
+
+    if (hit.kind === 'dictation') {
+      // Deliberately not prevented: suppressing the key-down makes Chromium drop the
+      // matching key-up, which would leave push-to-talk stuck recording. F4 has no
+      // default action worth blocking anyway.
+      win.webContents.send('shortcut:dictation', hit.edge)
+      return
+    }
+
+    event.preventDefault()
+
+    if (fromView && /^tool\.\d$/.test(hit.id)) {
+      void fromView
+        .executeJavaScript('window.getSelection ? String(window.getSelection()) : ""', true)
+        .then((selection: string) => {
+          if (!win.isDestroyed()) win.webContents.send('shortcut', { id: hit.id, selection })
+        })
+        .catch(() => win.webContents.send('shortcut', { id: hit.id }))
+      return
+    }
+
+    win.webContents.send('shortcut', { id: hit.id })
+  }
+
+  win.webContents.on('before-input-event', (event, input) => handleInput(event, input))
+
+  views = new ViewManager(
+    win,
+    path.join(__dirname, '../preload/site.js'),
+    (event: ViewEvent) => {
+      if (!win.isDestroyed()) win.webContents.send('view:event', event)
+    },
+    (event, input, wc) => handleInput(event, input, wc)
+  )
 
   win.on('closed', () => {
     views?.destroyAll()
@@ -88,6 +133,12 @@ function registerIpc(): void {
   // ── tools ────────────────────────────────────────────────────────────────
 
   ipcMain.handle('tools:list', (): SearchTool[] => tools.list())
+
+  ipcMain.handle('shortcuts:list', () => SHORTCUTS)
+
+  ipcMain.handle('tools:setSearchUrl', (_e, toolId: string, searchUrl: string | null) =>
+    tools.setSearchUrl(toolId, searchUrl)
+  )
 
   ipcMain.handle('dictation:status', () => dictation.refresh())
   ipcMain.handle('dictation:install', () => dictation.install())

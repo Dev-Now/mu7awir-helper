@@ -13,7 +13,11 @@ export function Sidebar(): React.JSX.Element {
   const deleteDiscussion = useApp((s) => s.deleteDiscussion)
   const updateSettings = useApp((s) => s.updateSettings)
 
-  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const renaming = useApp((s) => s.ui.renaming)
+  const setUi = useApp((s) => s.setUi)
+  const renamingId = renaming?.kind === 'discussion' ? renaming.id : null
+  const setRenamingId = (id: string | null): void =>
+    setUi({ renaming: id ? { kind: 'discussion', id } : null })
   // Delete is confirmed inline rather than with a modal, which would be painted
   // over by the search view's WebContentsView overlay.
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
@@ -27,10 +31,30 @@ export function Sidebar(): React.JSX.Element {
     setRenamingId(useApp.getState().workspace.activeDiscussionId)
   }
 
+  const toggleSidebar = (): void =>
+    updateSettings({ sidebarCollapsed: !workspace.settings.sidebarCollapsed })
+
   return (
     <aside className="sidebar" data-testid="sidebar">
       <div className="sidebar__header">
         <span>المناقشات</span>
+        <button
+          type="button"
+          className="icon-btn"
+          title="الإعدادات (Ctrl+,)"
+          data-testid="open-settings"
+          onClick={() => setUi({ settingsOpen: true })}
+        >
+          ⚙
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          title="إخفاء الشريط (Ctrl+B)"
+          onClick={toggleSidebar}
+        >
+          ‹
+        </button>
         <button
           type="button"
           className="icon-btn"

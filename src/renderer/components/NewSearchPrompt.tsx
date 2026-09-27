@@ -3,6 +3,10 @@ import type { SearchTool } from '@shared/types'
 
 interface NewSearchPromptProps {
   tools: SearchTool[]
+  /** Preselected by the Ctrl+1..7 shortcuts. */
+  initialToolId?: string | null
+  /** Prefilled from the selection in the page the user was reading. */
+  initialQuery?: string
   onSubmit: (tool: SearchTool, query: string) => void
   onCancel: () => void
 }
@@ -15,16 +19,19 @@ interface NewSearchPromptProps {
  */
 export function NewSearchPrompt({
   tools,
+  initialToolId,
+  initialQuery,
   onSubmit,
   onCancel
 }: NewSearchPromptProps): React.JSX.Element {
   const usable = tools.filter((t) => t.enabled)
-  const [toolId, setToolId] = useState(usable[0]?.id ?? '')
-  const [query, setQuery] = useState('')
+  const [toolId, setToolId] = useState(initialToolId ?? usable[0]?.id ?? '')
+  const [query, setQuery] = useState(initialQuery ?? '')
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     inputRef.current?.focus()
+    inputRef.current?.select()
   }, [])
 
   const tool = usable.find((t) => t.id === toolId)

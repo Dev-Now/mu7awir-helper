@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { Tab, TabKind } from '@shared/types'
 import { useApp } from '../state/store'
 import { InlineEdit } from './InlineEdit'
@@ -17,7 +16,11 @@ export function TabBar({ kind, tabs, activeId, onNew, newTitle }: TabBarProps): 
   const selectTab = useApp((s) => s.selectTab)
   const closeTab = useApp((s) => s.closeTab)
   const renameTab = useApp((s) => s.renameTab)
-  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const renaming = useApp((s) => s.ui.renaming)
+  const setUi = useApp((s) => s.setUi)
+  const renamingId = renaming?.kind === 'tab' ? renaming.id : null
+  const setRenamingId = (id: string | null): void =>
+    setUi({ renaming: id ? { kind: 'tab', id } : null })
 
   return (
     <div className="tabbar" data-testid={`${kind}-tabbar`}>

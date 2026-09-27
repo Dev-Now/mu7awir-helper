@@ -316,7 +316,7 @@ When a new search tab is opened with `Ctrl+1..7` and text is selected in the cur
 | Memory growth from many live views | Cap ~8 live `WebContentsView`s; hibernate older tabs to `{url}` and recreate on activation |
 | Node 20.17 vs Vite 7 engine floor | Pin Vite 5 via electron-vite 2.x, or bump Node — decide at M0 |
 
-## Implementation notes (M0–M4)
+## Implementation notes (M0–M7)
 
 Findings from building the milestones that the plan could not have predicted.
 
@@ -336,11 +336,28 @@ Findings from building the milestones that the plan could not have predicted.
   schedules a 32 ms timer alongside the rAF, and the smoke run shows its window.
 - **`position: fixed` blockifies `inline-flex` to `flex`** — relevant when asserting on the
   hover button's computed style.
-- **Verification**: 72 unit tests plus `npm run smoke`, a 40-step acceptance run that
+- **Preventing a key-down makes Chromium drop the matching key-up.** Push-to-talk broke
+  the moment shortcut matching moved into `before-input-event`: F4's key-down was being
+  `preventDefault()`ed, so the key-up never arrived and recording never stopped. The
+  dictation key is now matched without preventing it.
+- **A hover affordance must not be throttled with `requestAnimationFrame`.** Chromium
+  freezes rAF whenever the window is unfocused or occluded, which would strand the copy
+  button mid-page; it uses a timer instead.
+- **A bare hashtag in مكتبة الردود is a topic filter, not a word search.** Tokenising
+  `#تشجيع_على_الصبر_على_الأذى` split it into its component words and AND-matched common
+  ones like «على», so clicking a tag chip returned noise.
+- **electron-builder needs `@noble/hashes` pinned to 1.8.0** (an npm override):
+  `app-builder-lib` requires it as CommonJS, but v2 is ESM-only and the packaging step
+  dies on startup.
+- **Verification**: 158 unit tests plus `npm run smoke`, a 64-step acceptance run that
   launches the real app against a throwaway user-data directory, drives the DOM and the
   embedded pages, and checks the clipboard and the file on disk. It is hermetic by default
   (local `data:` URLs); `MU7_SMOKE_NET=1` adds a live-site run, and `MU7_SMOKE_SHOT=<path>`
-  captures screenshots. `npm run verify` chains typecheck, tests, build and smoke.
+  captures screenshots. `npm run verify` chains typecheck, tests, build and smoke, and the
+  same suite is run against the packaged build to prove `process.resourcesPath` resolves.
+- **Not verified**: whisper transcription accuracy on real Arabic speech, and the live
+  ~600MB asset download. Both need the model and a microphone. Everything up to the
+  binary — capture, resampling, WAV encoding, IPC, temp files, parsing — is covered.
 
 ## Out of scope for the MVP
 

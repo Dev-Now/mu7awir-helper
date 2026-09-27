@@ -70,6 +70,7 @@ export function activeTabId(d: Discussion, kind: TabKind): string | null {
 
 export function activeTab(d: Discussion, kind: 'search'): SearchTab | null
 export function activeTab(d: Discussion, kind: 'draft'): DraftTab | null
+export function activeTab(d: Discussion, kind: TabKind): Tab | null
 export function activeTab(d: Discussion, kind: TabKind): Tab | null {
   const id = activeTabId(d, kind)
   if (!id) return null

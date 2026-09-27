@@ -113,6 +113,9 @@ async function click(win: BrowserWindow, testId: string, index = 0): Promise<voi
        const els = document.querySelectorAll('${sel(testId)}')
        const el = els[${index}]
        if (!el) throw new Error('no ${testId} at index ${index} (found ' + els.length + ')')
+       // A real click starts with a pointerdown, which is what pane focus tracking
+       // listens for; .click() alone would be an unrealistic half-event.
+       el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, isPrimary: true }))
        el.click()
      })()`
   )
@@ -756,6 +759,33 @@ const selectParagraph = (views: ViewManager, index: number): Promise<void> =>
      })()`
   )
 
+/**
+ * Hover a block and wait for the copy button. The smoke window is visible, so the real
+ * mouse pointer emits its own mousemove/mouseleave that can undo a single synthetic
+ * event; re-dispatching until the button settles keeps the check about behaviour rather
+ * than about where the tester's cursor happens to be.
+ */
+async function hoverBlock(views: ViewManager, index: number, expect: 'flex' | 'none'): Promise<string> {
+  let seen = ''
+  for (let attempt = 0; attempt < 25; attempt++) {
+    await inPage(
+      views,
+      `document.querySelectorAll('p')[${index}]
+         .dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))`
+    )
+    await sleep(80)
+    seen = await inPage<string>(
+      views,
+      `getComputedStyle(
+         document.querySelector('[data-mu7="copy-overlay"]').shadowRoot
+           .querySelector('[data-mu7-copy]')
+       ).display`
+    )
+    if (seen === expect) return seen
+  }
+  return seen
+}
+
 const pressInPage = (views: ViewManager, key: string, shift: boolean): Promise<void> =>
   inPage(
     views,
@@ -807,30 +837,10 @@ function m3Steps(win: BrowserWindow, store: WorkspaceStore, views: ViewManager):
     {
       name: 'M3 the copy button follows the hovered block and skips short ones',
       run: async () => {
-        // Computed, not inline: the button starts hidden from the shadow stylesheet.
-        const visible = (): Promise<string> =>
-          inPage(
-            views,
-            `getComputedStyle(
-               document.querySelector('[data-mu7="copy-overlay"]').shadowRoot
-                 .querySelector('[data-mu7-copy]')
-             ).display`
-          )
-
-        // Hovering the short paragraph must not offer a button.
-        await inPage(
-          views,
-          `document.querySelectorAll('p')[0].dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))`
-        )
-        await sleep(120)
-        assertEqual(await visible(), 'none', 'no button on a short block')
-
-        await inPage(
-          views,
-          `document.querySelectorAll('p')[1].dispatchEvent(new MouseEvent('mousemove', { bubbles: true }))`
-        )
-        await sleep(150)
-        assertEqual(await visible(), 'flex', 'button shown on a quotable block')
+        // A block too short to be worth quoting offers nothing.
+        assertEqual(await hoverBlock(views, 0, 'none'), 'none', 'no button on a short block')
+        // A quotable one does.
+        assertEqual(await hoverBlock(views, 1, 'flex'), 'flex', 'button shown on a quotable block')
       }
     },
     {
@@ -1085,12 +1095,8 @@ function m4Steps(win: BrowserWindow, store: WorkspaceStore): Step[] {
       name: 'M4 Ctrl+Shift+A copies the whole draft from the app chrome',
       run: async () => {
         await evaluate(win, `window.api.writeClipboard('')`)
-        await evaluate(
-          win,
-          `window.dispatchEvent(new KeyboardEvent('keydown', {
-             key: 'A', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true
-           }))`
-        )
+        // A real key event, so it goes through the same matcher the app uses at runtime.
+        await sendKey(win.webContents, 'A', ['control', 'shift'])
         await sleep(250)
         assert(
           (await evaluate<string>(win, `window.__mu7.readClipboard()`)).includes(VOCALISED),
@@ -1161,10 +1167,9 @@ function m5Steps(win: BrowserWindow, views: ViewManager): Step[] {
       run: async () => {
         await openPromptTab(win, 'rudud', 'الوسواس')
         await waitFor(win, `${count('rudud')} === 1`, 'the ردود panel')
-        assertEqual(
-          views.debugState().attached.length,
-          0,
-          'no embedded view may cover a local tool'
+        await waitUntil(
+          () => views.debugState().attached.length === 0,
+          'the embedded view to detach for a local tool'
         )
         await waitFor(win, `${count('rudud-hit')} > 0`, 'results for الوسواس')
       }
@@ -1267,14 +1272,23 @@ function m5Steps(win: BrowserWindow, views: ViewManager): Step[] {
 
 // ── M6: dictation ────────────────────────────────────────────────────────────
 
-/** Press or release a key on the app chrome. */
+/**
+ * Inject a real key event, the way the OS would. This goes through
+ * `before-input-event`, which is where the app matches its shortcuts — a synthetic
+ * DOM KeyboardEvent would bypass that entirely and prove nothing.
+ */
+async function sendKey(
+  wc: Electron.WebContents,
+  keyCode: string,
+  modifiers: string[] = [],
+  type: 'keyDown' | 'keyUp' = 'keyDown'
+): Promise<void> {
+  wc.sendInputEvent({ type, keyCode, modifiers } as Electron.KeyboardInputEvent)
+  await sleep(90)
+}
+
 const pressKey = (win: BrowserWindow, key: string, type: 'keydown' | 'keyup'): Promise<void> =>
-  evaluate(
-    win,
-    `window.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)}, {
-       key: ${JSON.stringify(key)}, bubbles: true, cancelable: true
-     }))`
-  )
+  sendKey(win.webContents, key, [], type === 'keydown' ? 'keyDown' : 'keyUp')
 
 const hudPhase = (win: BrowserWindow): Promise<string | null> =>
   evaluate(
@@ -1396,6 +1410,275 @@ function m6Steps(win: BrowserWindow): Step[] {
   ]
 }
 
+// ── M7: shortcuts and settings ───────────────────────────────────────────────
+
+const uiState = <T,>(win: BrowserWindow, expression: string): Promise<T> =>
+  evaluate(win, `(() => { const ui = window.__mu7.getUi(); return ${expression} })()`)
+
+function m7Steps(win: BrowserWindow, views: ViewManager): Step[] {
+  let viewContents: Electron.WebContents | null = null
+
+  return [
+    {
+      name: 'M7 a shortcut pressed inside an embedded page still reaches the app',
+      run: async () => {
+        await evaluate(win, `window.__mu7.actions.createDiscussion('حوار الاختصارات')`)
+        await sleep(80)
+        await openLocalSearchTab(win, views, {
+          toolId: 'quran',
+          title: 'صفحة',
+          url: dataPage('صفحة الاختصارات', '<p>نص طويل بما يكفي للاختبار والتحديد هنا.</p>')
+        })
+        viewContents = views.attachedContents()
+        assert(viewContents, 'the embedded view should be attached')
+        viewContents.focus()
+        await sleep(120)
+
+        assertEqual(await evaluate<number>(win, count('draft-tab')), 0, 'no drafts yet')
+        // Ctrl+D pressed with focus inside the web page, not the app chrome.
+        await sendKey(viewContents, 'd', ['control'])
+        await waitFor(win, `${count('draft-tab')} === 1`, 'a draft opened from inside the page')
+      }
+    },
+    {
+      name: 'M7 a tool shortcut opens the prompt with that tool chosen',
+      run: async () => {
+        await sendKey(viewContents!, '2', ['control'])
+        await waitFor(win, `${count('new-search-prompt')} === 1`, 'the prompt')
+        assertEqual(
+          await evaluate<string>(
+            win,
+            `document.querySelector('${sel('prompt-tool')}[data-active]').dataset.tool`
+          ),
+          'hadith',
+          'Ctrl+2 should preselect the hadith tool'
+        )
+        await evaluate(
+          win,
+          `document.querySelector('${sel('prompt-query')}')
+             .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`
+        )
+        await waitFor(win, `${count('new-search-prompt')} === 0`, 'the prompt to close')
+      }
+    },
+    {
+      name: 'M7 a tool shortcut prefills the text selected in the page',
+      run: async () => {
+        await selectParagraph(views, 0)
+        await sendKey(viewContents!, '1', ['control'])
+        await waitFor(win, `${count('new-search-prompt')} === 1`, 'the prompt')
+
+        const prefilled = await evaluate<string>(
+          win,
+          `document.querySelector('${sel('prompt-query')}').value`
+        )
+        assert(
+          prefilled.includes('نص طويل'),
+          `the page selection should be carried over, got ${JSON.stringify(prefilled)}`
+        )
+        await evaluate(
+          win,
+          `document.querySelector('${sel('prompt-query')}')
+             .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`
+        )
+        await waitFor(win, `${count('new-search-prompt')} === 0`, 'the prompt to close')
+      }
+    },
+    {
+      name: 'M7 tab navigation shortcuts move within one kind of tab',
+      run: async () => {
+        await openLocalSearchTab(win, views, {
+          toolId: 'quran',
+          title: 'ثانية',
+          url: dataPage('ثانية', '<p>صفحة ثانية للتنقل بين الألسنة.</p>')
+        })
+        assertEqual(await evaluate<number>(win, count('search-tab')), 2, 'two search tabs')
+
+        const activeTitle = (): Promise<string> =>
+          evaluate(
+            win,
+            `document.querySelector('${sel('search-tab')}[data-active] .tab__title').textContent`
+          )
+        assertEqual(await activeTitle(), 'ثانية', 'the newest tab is active')
+
+        await sendKey(win.webContents, 'Left', ['alt'])
+        assertEqual(await activeTitle(), 'صفحة', 'Alt+Left moves to the previous tab')
+        await sendKey(win.webContents, 'Right', ['alt'])
+        assertEqual(await activeTitle(), 'ثانية', 'Alt+Right moves back')
+        await sendKey(win.webContents, 'Home', ['alt'])
+        assertEqual(await activeTitle(), 'صفحة', 'Alt+Home jumps to the first tab')
+        await sendKey(win.webContents, 'End', ['alt'])
+        assertEqual(await activeTitle(), 'ثانية', 'Alt+End jumps to the last tab')
+
+        // Draft tabs must be untouched by the search-tab bindings.
+        assertEqual(await evaluate<number>(win, count('draft-tab')), 1, 'drafts unaffected')
+      }
+    },
+    {
+      name: 'M7 F2 renames the tab in the pane that has focus',
+      run: async () => {
+        await click(win, 'search-tab', 0) // focus the search pane
+        await sendKey(win.webContents, 'F2')
+        await waitFor(win, `document.querySelectorAll('input.inline-edit').length === 1`, 'a rename editor')
+        await typeInlineEdit(win, 'مسمّى جديد')
+        assertEqual(
+          await evaluate<string>(
+            win,
+            `document.querySelector('${sel('search-tab')}[data-active] .tab__title').textContent`
+          ),
+          'مسمّى جديد',
+          'the renamed search tab'
+        )
+
+        // With the draft pane focused, F2 must target the draft tab instead.
+        await click(win, 'draft-tab', 0)
+        await sendKey(win.webContents, 'F2')
+        await waitFor(win, `document.querySelectorAll('input.inline-edit').length === 1`, 'a rename editor')
+        await typeInlineEdit(win, 'ردّي')
+        assertEqual(
+          await evaluate<string>(
+            win,
+            `document.querySelector('${sel('draft-tab')}[data-active] .tab__title').textContent`
+          ),
+          'ردّي',
+          'the renamed draft tab'
+        )
+      }
+    },
+    {
+      name: 'M7 Ctrl+W closes the tab in the focused pane',
+      run: async () => {
+        await click(win, 'draft-tab', 0)
+        await sendKey(win.webContents, 'w', ['control'])
+        await waitFor(win, `${count('draft-tab')} === 0`, 'the draft tab to close')
+        assertEqual(await evaluate<number>(win, count('search-tab')), 2, 'search tabs untouched')
+
+        await click(win, 'search-tab', 0)
+        await sendKey(win.webContents, 'w', ['control'])
+        await waitFor(win, `${count('search-tab')} === 1`, 'a search tab to close')
+      }
+    },
+    {
+      name: 'M7 Ctrl+D and Ctrl+N create tabs and discussions',
+      run: async () => {
+        await sendKey(win.webContents, 'd', ['control'])
+        await waitFor(win, `${count('draft-tab')} === 1`, 'Ctrl+D to open a draft')
+
+        const before = await evaluate<number>(win, count('discussion'))
+        await sendKey(win.webContents, 'n', ['control'])
+        await waitFor(win, `${count('discussion')} === ${before + 1}`, 'Ctrl+N to add a discussion')
+        // A fresh discussion opens its rename editor, as the sidebar button does.
+        assertEqual(
+          await evaluate<number>(win, `document.querySelectorAll('input.inline-edit').length`),
+          1,
+          'the new discussion should be waiting to be named'
+        )
+        await typeInlineEdit(win, 'من الاختصار')
+
+        await sendKey(win.webContents, 'Tab', ['control'])
+        await sendKey(win.webContents, 'Tab', ['control', 'shift'])
+        assertEqual(
+          await evaluate<string>(
+            win,
+            `document.querySelector('${sel('discussion')}[data-active] .discussion__title').textContent`
+          ),
+          'من الاختصار',
+          'Ctrl+Tab then Ctrl+Shift+Tab should return to the same discussion'
+        )
+      }
+    },
+    {
+      name: 'M7 Ctrl+B collapses the sidebar and brings it back',
+      run: async () => {
+        await sendKey(win.webContents, 'b', ['control'])
+        await waitFor(win, `${count('sidebar')} === 0`, 'the sidebar to collapse')
+        await sendKey(win.webContents, 'b', ['control'])
+        await waitFor(win, `${count('sidebar')} === 1`, 'the sidebar to return')
+      }
+    },
+    {
+      name: 'M7 Ctrl+, opens settings, which hides the embedded view',
+      run: async () => {
+        // Open a page of our own so the check does not depend on what earlier steps left.
+        await openLocalSearchTab(win, views, {
+          toolId: 'quran',
+          title: 'للإعدادات',
+          url: dataPage('للإعدادات', '<p>صفحة مفتوحة خلف لوحة الإعدادات.</p>')
+        })
+        await waitUntil(() => views.debugState().attached.length === 1, 'a view on screen first')
+
+        await sendKey(win.webContents, ',', ['control'])
+        await waitFor(win, `${count('settings')} === 1`, 'the settings panel')
+        await waitUntil(
+          () => views.debugState().attached.length === 0,
+          'the embedded view to hide behind the settings overlay'
+        )
+      }
+    },
+    {
+      name: 'M7 settings list every shortcut, the tools and the dictation state',
+      run: async () => {
+        const listed = await evaluate<number>(win, `document.querySelectorAll('${sel('settings-shortcuts')} li').length`)
+        assert(listed >= 25, `expected the full keymap, got ${listed} rows`)
+        assertEqual(await evaluate<number>(win, count('settings-tool')), 7, 'all seven tools')
+        assertEqual(
+          await evaluate<number>(win, count('dictation-ready')),
+          1,
+          'dictation should report itself ready'
+        )
+
+        await evaluate(win, `document.querySelector('${sel('close-settings')}').click()`)
+        await waitFor(win, `${count('settings')} === 0`, 'settings to close')
+        await waitUntil(
+          () => views.debugState().attached.length === 1,
+          'the embedded view to come back'
+        )
+      }
+    },
+    {
+      name: 'M7 editing keys are not swallowed by the shortcut layer',
+      run: async () => {
+        // Own draft, so this does not depend on what the earlier steps closed.
+        await sendKey(win.webContents, 'd', ['control'])
+        await waitFor(win, `${count('draft-editor')} === 1`, 'a draft editor')
+        await click(win, 'draft-tab', 0)
+        await sleep(120)
+        await typeDraft(win, 'البداية ')
+        await sleep(COMMIT_WAIT)
+        await evaluate(win, `window.api.writeClipboard('ملصوق')`)
+
+        await evaluate(
+          win,
+          `(() => {
+             const el = document.querySelector('${sel('draft-editor')}')
+             el.focus()
+             el.setSelectionRange(el.value.length, el.value.length)
+           })()`
+        )
+        // Ctrl+V has no binding, so it must reach the textarea untouched.
+        await sendKey(win.webContents, 'v', ['control'])
+        await sleep(250)
+
+        assert(
+          (await evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').value`)).includes(
+            'ملصوق'
+          ),
+          'paste must still work inside the editor'
+        )
+      }
+    },
+    {
+      name: 'M7 the UI state the shortcuts drive is consistent',
+      run: async () => {
+        assertEqual(await uiState<boolean>(win, 'ui.settingsOpen'), false, 'settings closed')
+        assertEqual(await uiState<boolean>(win, 'ui.promptOpen'), false, 'prompt closed')
+        assertEqual(await uiState<unknown>(win, 'ui.renaming'), null, 'no rename in progress')
+        assertEqual(await uiState<string>(win, 'ui.focusedPane'), 'draft', 'draft pane has focus')
+      }
+    }
+  ]
+}
+
 /** Opt-in: exercises the real sites. Enabled with MU7_SMOKE_NET=1. */
 function m2NetSteps(win: BrowserWindow, views: ViewManager): Step[] {
   return [
@@ -1446,6 +1729,21 @@ async function capture(win: BrowserWindow, views: ViewManager): Promise<void> {
   try {
     await fs.writeFile(target, (await win.webContents.capturePage()).toPNG())
     console.log(`SMOKE shot  ${target}`)
+    // Also capture the settings panel, which is where the keymap is documented.
+    await win.webContents.executeJavaScript(
+      `window.__mu7.actions.setUi({ settingsOpen: true })`,
+      true
+    )
+    await new Promise((r) => setTimeout(r, 400))
+    await fs.writeFile(
+      target.replace(/\.png$/, '') + '.settings.png',
+      (await win.webContents.capturePage()).toPNG()
+    )
+    await win.webContents.executeJavaScript(
+      `window.__mu7.actions.setUi({ settingsOpen: false })`,
+      true
+    )
+
     // Child views render outside the window's own contents, so grab the page separately.
     const embedded = views.attachedContents()
     if (embedded) {
@@ -1471,6 +1769,7 @@ export async function runSmoke(
     ...m4Steps(win, store),
     ...m5Steps(win, views),
     ...m6Steps(win),
+    ...m7Steps(win, views),
     // Real sites are only touched when explicitly asked for, so the default run is hermetic.
     ...(process.env.MU7_SMOKE_NET === '1' ? m2NetSteps(win, views) : [])
   ]

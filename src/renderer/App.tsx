@@ -3,11 +3,13 @@ import * as W from '@shared/workspace'
 import { DictationHud } from './components/DictationHud'
 import { DraftPane } from './components/DraftPane'
 import { SearchPane } from './components/SearchPane'
+import { Settings } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { Splitter } from './components/Splitter'
 import { Toast } from './components/Toast'
 import { useCopyEvents } from './hooks/useCopyEvents'
 import { useDictation } from './hooks/useDictation'
+import { useShortcuts } from './hooks/useShortcuts'
 import { useViewEvents } from './hooks/useViewEvents'
 import { useApp } from './state/store'
 
@@ -24,6 +26,7 @@ export function App(): React.JSX.Element {
   useViewEvents()
   useCopyEvents()
   const dictation = useDictation()
+  useShortcuts()
 
   const contentRef = useRef<HTMLElement>(null)
   /** Non-null only mid-drag, so the splitter stays smooth without touching the store. */
@@ -37,7 +40,18 @@ export function App(): React.JSX.Element {
       className={`shell${workspace.settings.sidebarCollapsed ? ' shell--collapsed' : ''}`}
       data-testid="shell"
     >
-      <Sidebar />
+      {workspace.settings.sidebarCollapsed ? (
+        <button
+          type="button"
+          className="sidebar-peek"
+          title="إظهار الشريط الجانبي (Ctrl+B)"
+          onClick={() => updateSettings({ sidebarCollapsed: false })}
+        >
+          ›
+        </button>
+      ) : (
+        <Sidebar />
+      )}
 
       <main
         ref={contentRef}
@@ -59,6 +73,7 @@ export function App(): React.JSX.Element {
         <DraftPane discussion={discussion} />
       </main>
 
+      <Settings />
       <DictationHud {...dictation} />
       <Toast />
     </div>

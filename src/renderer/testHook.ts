@@ -14,6 +14,7 @@ export function installTestHook(): void {
     getTools: () => useApp.getState().tools,
     readClipboard: () => window.api.readClipboard(),
     rududStatus: () => window.api.rududStatus(),
+    getUi: () => useApp.getState().ui as unknown as Record<string, unknown>,
     actions: useApp.getState() as unknown as Record<string, (...args: never[]) => unknown>,
     flush: () => window.api.flushWorkspace()
   }

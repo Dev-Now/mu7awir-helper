@@ -48,6 +48,21 @@ const api = {
     return () => ipcRenderer.removeListener('dictation:status', listener)
   },
 
+  listShortcuts: (): Promise<Array<{ id: string; accelerator: string; description: string }>> =>
+    ipcRenderer.invoke('shortcuts:list'),
+  setToolSearchUrl: (toolId: string, searchUrl: string | null): Promise<SearchTool[]> =>
+    ipcRenderer.invoke('tools:setSearchUrl', toolId, searchUrl),
+  onShortcut: (handler: (message: unknown) => void): (() => void) => {
+    const listener = (_e: unknown, message: unknown): void => handler(message)
+    ipcRenderer.on('shortcut', listener)
+    return () => ipcRenderer.removeListener('shortcut', listener)
+  },
+  onDictationKey: (handler: (edge: 'down' | 'up') => void): (() => void) => {
+    const listener = (_e: unknown, edge: 'down' | 'up'): void => handler(edge)
+    ipcRenderer.on('shortcut:dictation', listener)
+    return () => ipcRenderer.removeListener('shortcut:dictation', listener)
+  },
+
   writeClipboard: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),
   readClipboard: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),
 

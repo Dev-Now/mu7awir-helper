@@ -777,3 +777,172 @@ button {
 .hud__bar--lit {
   background: var(--accent);
 }
+
+/* ── settings ──────────────────────────────────────────────────────────── */
+
+.sidebar-peek {
+  width: 16px;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-raised);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.sidebar-peek:hover {
+  color: var(--text);
+}
+
+.settings {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 55%);
+  z-index: 70;
+}
+
+.settings__panel {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 92vw);
+  max-height: 86vh;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 60%);
+  font-family: var(--font-ar);
+}
+
+.settings__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.settings__body {
+  padding: 4px 16px 16px;
+  overflow-y: auto;
+}
+
+.settings__section {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__section:last-child {
+  border-bottom: 0;
+}
+
+.settings__section h3 {
+  margin: 0 0 10px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.settings__row input {
+  accent-color: var(--accent);
+}
+
+.settings__note {
+  margin: 0 0 10px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.settings__path {
+  color: var(--text-faint);
+  direction: ltr;
+  font-size: 11px;
+  unicode-bidi: embed;
+}
+
+.settings__error {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.settings__tools {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.settings__tools td {
+  padding: 4px 0 4px 10px;
+  vertical-align: middle;
+}
+
+.settings__tool-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.settings__key,
+.settings__shortcuts kbd,
+.settings__note kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  direction: ltr;
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.settings__url {
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  direction: ltr;
+  font-size: 12px;
+  outline: none;
+}
+
+.settings__url:focus {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.settings__shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2px 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings__shortcuts li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}

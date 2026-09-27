@@ -68,7 +68,14 @@ export class ViewManager {
   constructor(
     private readonly win: BrowserWindow,
     private readonly preload: string,
-    private readonly emit: (event: ViewEvent) => void
+    private readonly emit: (event: ViewEvent) => void,
+    /** Called for every key pressed inside an embedded page, so app shortcuts survive
+     *  focus moving into a search view. */
+    private readonly onBeforeInput?: (
+      event: Electron.Event,
+      input: Electron.Input,
+      wc: WebContents
+    ) => void
   ) {}
 
   // ── presentation ───────────────────────────────────────────────────────────
@@ -187,6 +194,10 @@ export class ViewManager {
     wc.on('did-stop-loading', report)
     wc.on('did-finish-load', report)
     wc.on('page-title-updated', report)
+
+    if (this.onBeforeInput) {
+      wc.on('before-input-event', (event, input) => this.onBeforeInput!(event, input, wc))
+    }
 
     // No `found-in-page` listener here on purpose — see `find()`.
 

@@ -18,6 +18,7 @@ export function DraftPane({ discussion }: DraftPaneProps): React.JSX.Element {
   const appendSources = useApp((s) => s.workspace.settings.appendSources)
   const updateSettings = useApp((s) => s.updateSettings)
   const showToast = useApp((s) => s.showToast)
+  const setUi = useApp((s) => s.setUi)
 
   const tabs = discussion ? W.tabsOfKind(discussion, 'draft') : []
   const draft = discussion ? W.activeTab(discussion, 'draft') : null
@@ -33,20 +34,20 @@ export function DraftPane({ discussion }: DraftPaneProps): React.JSX.Element {
     showToast(`نُسخ الرد كاملاً (${text.length} حرفًا)`)
   }
 
-  // Ctrl+Shift+A copies the whole draft from anywhere in the app chrome.
+  // Ctrl+Shift+A is matched in main and relayed here, so it works from anywhere,
+  // including while focus sits inside an embedded search page.
   useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.ctrlKey && event.shiftKey && (event.key === 'A' || event.key === 'a')) {
-        event.preventDefault()
-        void copyAll()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const onCopyDraft = (): void => void copyAll()
+    window.addEventListener('mu7:copy-draft', onCopyDraft)
+    return () => window.removeEventListener('mu7:copy-draft', onCopyDraft)
   })
 
   return (
-    <section className="pane" data-testid="draft-pane">
+    <section
+      className="pane"
+      data-testid="draft-pane"
+      onPointerDownCapture={() => setUi({ focusedPane: 'draft' })}
+    >
       <TabBar
         kind="draft"
         tabs={tabs}
@@ -169,10 +170,6 @@ function DraftEditor({ draft }: { draft: DraftTab }): React.JSX.Element {
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onBlur={() => commit(pending.current)}
-      onKeyDown={(e) => {
-        // Let the editor own its keys, except the app-level copy shortcut.
-        if (!(e.ctrlKey && e.shiftKey)) e.stopPropagation()
-      }}
       onPaste={(e) => {
         // Force plain text; execCommand keeps the textarea's native undo stack intact.
         const text = e.clipboardData.getData('text/plain')

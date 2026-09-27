@@ -10,6 +10,19 @@ export interface NavState {
   loading: boolean
 }
 
+/** Transient UI state that keyboard shortcuts need to reach. */
+export interface UiState {
+  promptOpen: boolean
+  /** Tool preselected by Ctrl+1..7. */
+  promptToolId: string | null
+  promptQuery: string
+  findOpen: boolean
+  settingsOpen: boolean
+  /** Which pane a rename or close shortcut should act on. */
+  focusedPane: 'search' | 'draft'
+  renaming: { kind: 'discussion' | 'tab'; id: string } | null
+}
+
 export interface FindState {
   matches: number
   activeMatchOrdinal: number
@@ -28,6 +41,7 @@ interface AppState {
   /** Live navigation state per search tab, mirrored from the embedded views. */
   nav: Record<string, NavState>
   find: FindState | null
+  ui: UiState
   toast: { text: string; tone: 'ok' | 'warn'; at: number } | null
 
   hydrate: () => Promise<void>
@@ -64,6 +78,7 @@ interface AppState {
   setTools: (tools: SearchTool[]) => void
   setNav: (tabId: string, nav: NavState) => void
   setFind: (find: FindState | null) => void
+  setUi: (patch: Partial<UiState>) => void
   showToast: (text: string, tone?: 'ok' | 'warn') => void
 }
 
@@ -73,6 +88,15 @@ export const useApp = create<AppState>((set, get) => ({
   tools: [],
   nav: {},
   find: null,
+  ui: {
+    promptOpen: false,
+    promptToolId: null,
+    promptQuery: '',
+    findOpen: false,
+    settingsOpen: false,
+    focusedPane: 'search',
+    renaming: null
+  },
   toast: null,
 
   hydrate: async () => {
@@ -141,5 +165,6 @@ export const useApp = create<AppState>((set, get) => ({
   setTools: (tools) => set({ tools }),
   setNav: (tabId, nav) => set({ nav: { ...get().nav, [tabId]: nav } }),
   setFind: (find) => set({ find }),
+  setUi: (patch) => set({ ui: { ...get().ui, ...patch } }),
   showToast: (text, tone = 'ok') => set({ toast: { text, tone, at: Date.now() } })
 }))
