@@ -582,3 +582,127 @@ button {
 .draft-editor::placeholder {
   color: var(--text-faint);
 }
+
+/* ── مكتبة الردود ──────────────────────────────────────────────────────── */
+
+.rudud {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.rudud__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rudud__input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 15px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: var(--font-ar);
+  font-size: 15px;
+  outline: none;
+}
+
+.rudud__input:focus {
+  border-color: var(--accent);
+}
+
+.rudud__count {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-family: var(--font-ar);
+  font-size: 12px;
+}
+
+.rudud__list {
+  flex: 1;
+  margin: 0;
+  padding: 8px 10px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.rudud__item {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-raised);
+}
+
+.rudud__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.rudud__tag {
+  padding: 1px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--font-ar);
+  font-size: 11px;
+}
+
+.rudud__tag:hover {
+  background: var(--bg-active);
+}
+
+.rudud__date {
+  margin-right: auto;
+  color: var(--text-faint);
+  direction: ltr;
+  font-size: 11px;
+}
+
+.rudud__text {
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: var(--font-ar);
+  font-size: 15px;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+
+.rudud__text--open {
+  color: var(--text);
+}
+
+.rudud__text mark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--accent-dim);
+  color: #fff;
+}
+
+.rudud__actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.rudud code {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-input);
+  direction: ltr;
+  font-size: 12px;
+}

@@ -27,6 +27,10 @@ const api = {
   calibrateTool: (toolId: string, tabId: string, query: string): Promise<string | null> =>
     ipcRenderer.invoke('tools:calibrate', toolId, tabId, query),
 
+  searchRudud: (query: string): Promise<unknown> => ipcRenderer.invoke('rudud:search', query),
+  rududStatus: (): Promise<{ available: boolean; size: number }> =>
+    ipcRenderer.invoke('rudud:status'),
+
   writeClipboard: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),
   readClipboard: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),
 

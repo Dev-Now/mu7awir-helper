@@ -1,6 +1,7 @@
 import { app, BrowserWindow, clipboard, ipcMain } from 'electron'
 import path from 'node:path'
 import { WorkspaceStore } from './store'
+import { RududIndex } from './rududIndex'
 import { ToolRegistry, buildSearchUrl, deriveSearchUrl } from './tools'
 import { ViewManager, type Bounds, type SyncRequest, type ViewEvent } from './viewManager'
 import { runSmoke } from './smoke'
@@ -12,6 +13,7 @@ const isSmoke = process.env.MU7_SMOKE === '1'
 let mainWindow: BrowserWindow | null = null
 let store: WorkspaceStore
 let tools: ToolRegistry
+let rudud: RududIndex
 let views: ViewManager | null = null
 
 /** Main keeps a mirror of the renderer's state so it can flush on quit. */
@@ -84,6 +86,9 @@ function registerIpc(): void {
   // ── tools ────────────────────────────────────────────────────────────────
 
   ipcMain.handle('tools:list', (): SearchTool[] => tools.list())
+
+  ipcMain.handle('rudud:search', (_e, query: string) => rudud.search(query))
+  ipcMain.handle('rudud:status', () => ({ available: rudud.available, size: rudud.size }))
 
   ipcMain.handle('tools:buildUrl', (_e, toolId: string, query: string): string => {
     const tool = tools.get(toolId)
@@ -161,6 +166,13 @@ void app.whenReady().then(async () => {
   store = new WorkspaceStore(app.getPath('userData'))
   tools = new ToolRegistry(app.getPath('userData'), resourcePath('resources', 'tools.default.json'))
   await tools.load()
+
+  rudud = new RududIndex()
+  if (await rudud.load(resourcePath('resources', 'rudud.json'))) {
+    console.log(`[rudud] indexed ${rudud.size} documents`)
+  } else {
+    console.warn('[rudud] no index found — run `npm run build:rudud`')
+  }
 
   registerIpc()
   mainWindow = createWindow()

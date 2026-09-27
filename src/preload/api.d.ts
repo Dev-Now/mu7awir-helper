@@ -11,6 +11,7 @@ declare global {
       getFind: () => unknown
       getTools: () => import('@shared/types').SearchTool[]
       readClipboard: () => Promise<string>
+      rududStatus: () => Promise<{ available: boolean; size: number }>
       actions: Record<string, (...args: never[]) => unknown>
       flush: () => Promise<void>
     }

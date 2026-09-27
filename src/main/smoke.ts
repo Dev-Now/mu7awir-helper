@@ -1091,6 +1091,147 @@ function m4Steps(win: BrowserWindow, store: WorkspaceStore): Step[] {
 /** Comfortably longer than the editor's commit debounce. */
 const COMMIT_WAIT = 500
 
+// ── M5: مكتبة الردود ─────────────────────────────────────────────────────────
+
+/** Type a query into the ردود search box and submit it. */
+async function searchRudud(win: BrowserWindow, query: string): Promise<void> {
+  await evaluate(
+    win,
+    `(() => {
+       const input = document.querySelector('${sel('rudud-query')}')
+       if (!input) throw new Error('the ردود search box is not mounted')
+       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+       setter.call(input, ${JSON.stringify(query)})
+       input.dispatchEvent(new Event('input', { bubbles: true }))
+     })()`
+  )
+  await sleep(40)
+  await click(win, 'rudud-run')
+  await sleep(250)
+}
+
+function m5Steps(win: BrowserWindow, views: ViewManager): Step[] {
+  return [
+    {
+      name: 'M5 the index is built and loaded in main',
+      run: async () => {
+        const status = await evaluate<{ available: boolean; size: number }>(
+          win,
+          `window.__mu7.rududStatus()`
+        )
+        assert(status.available, 'the ردود index should be loaded — run `npm run build:rudud`')
+        assert(status.size > 600, `expected the full corpus, got ${status.size} documents`)
+      }
+    },
+    {
+      name: 'M5 opening the local tool renders results instead of a web view',
+      run: async () => {
+        await openPromptTab(win, 'rudud', 'الوسواس')
+        await waitFor(win, `${count('rudud')} === 1`, 'the ردود panel')
+        assertEqual(
+          views.debugState().attached.length,
+          0,
+          'no embedded view may cover a local tool'
+        )
+        await waitFor(win, `${count('rudud-hit')} > 0`, 'results for الوسواس')
+      }
+    },
+    {
+      name: 'M5 a bare query matches vocalised text and highlights it',
+      run: async () => {
+        await searchRudud(win, 'الصبر')
+        await waitFor(win, `${count('rudud-hit')} > 0`, 'results for الصبر')
+
+        const marks = await evaluate<string[]>(
+          win,
+          `[...document.querySelectorAll('${sel('rudud-text')} mark')].slice(0, 20).map((m) => m.textContent)`
+        )
+        assert(marks.length > 0, 'matches should be highlighted')
+        // The corpus is vocalised, so at least one highlight should carry diacritics
+        // that the bare query did not contain.
+        assert(
+          marks.some((m) => /[ً-ْ]/.test(m)),
+          `expected a vocalised highlight, got ${JSON.stringify(marks.slice(0, 5))}`
+        )
+      }
+    },
+    {
+      name: 'M5 the result count and an unmatched query behave',
+      run: async () => {
+        const shown = await evaluate<string>(
+          win,
+          `document.querySelector('${sel('rudud-count')}').textContent`
+        )
+        assert(/\d/.test(shown), `expected a result count, got ${JSON.stringify(shown)}`)
+
+        await searchRudud(win, 'zzzqqq')
+        await waitFor(win, `${count('rudud-hit')} === 0`, 'no results for nonsense')
+      }
+    },
+    {
+      name: 'M5 copying a result puts it on the clipboard',
+      run: async () => {
+        await searchRudud(win, 'الصبر')
+        await waitFor(win, `${count('rudud-hit')} > 0`, 'results to come back')
+        await evaluate(win, `window.api.writeClipboard('')`)
+
+        await click(win, 'rudud-copy', 0)
+        await sleep(250)
+        const copied = await evaluate<string>(win, `window.__mu7.readClipboard()`)
+        assert(copied.length > 40, `expected the full message, got ${copied.length} characters`)
+        // Copies carry the original text, diacritics and all.
+        assert(!copied.includes('<mark>'), 'markup must not leak into the clipboard')
+      }
+    },
+    {
+      name: 'M5 sending a result to the draft records its source',
+      run: async () => {
+        const before = await draftContent(win)
+        await click(win, 'rudud-to-draft', 0)
+        await sleep(300)
+
+        const after = await draftContent(win)
+        assert(after.length > before.length, 'the draft should have grown')
+
+        const sources = await evaluate<string[]>(
+          win,
+          `(() => {
+             const ws = window.__mu7.getWorkspace()
+             const d = ws.discussions.find((x) => x.id === ws.activeDiscussionId)
+             const t = d.tabs.find((t) => t.id === d.activeDraftTabId)
+             return t.sources.map((s) => s.pageTitle)
+           })()`
+        )
+        assert(
+          sources.some((s) => s.startsWith('مكتبة الردود #')),
+          `expected a ردود attribution, got ${JSON.stringify(sources)}`
+        )
+      }
+    },
+    {
+      name: 'M5 clicking a tag searches for it',
+      run: async () => {
+        const tag = await evaluate<string | null>(
+          win,
+          `(() => {
+             const el = document.querySelector('.rudud__tag')
+             return el ? el.textContent : null
+           })()`
+        )
+        if (!tag) return // this result set happens to be untagged
+        await evaluate(win, `document.querySelector('.rudud__tag').click()`)
+        await sleep(300)
+        await waitFor(win, `${count('rudud-hit')} > 0`, `results for the tag ${tag}`)
+        assertEqual(
+          await evaluate<string>(win, `document.querySelector('${sel('rudud-query')}').value`),
+          tag,
+          'the search box should show the tag that was clicked'
+        )
+      }
+    }
+  ]
+}
+
 /** Opt-in: exercises the real sites. Enabled with MU7_SMOKE_NET=1. */
 function m2NetSteps(win: BrowserWindow, views: ViewManager): Step[] {
   return [
@@ -1164,6 +1305,7 @@ export async function runSmoke(
     ...m2Steps(win, store, views),
     ...m3Steps(win, store, views),
     ...m4Steps(win, store),
+    ...m5Steps(win, views),
     // Real sites are only touched when explicitly asked for, so the default run is hermetic.
     ...(process.env.MU7_SMOKE_NET === '1' ? m2NetSteps(win, views) : [])
   ]

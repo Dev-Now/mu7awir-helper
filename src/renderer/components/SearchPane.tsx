@@ -4,6 +4,7 @@ import * as W from '@shared/workspace'
 import { useViewSync } from '../hooks/useViewSync'
 import { useApp } from '../state/store'
 import { NewSearchPrompt } from './NewSearchPrompt'
+import { RududResults } from './RududResults'
 import { TabBar } from './TabBar'
 
 interface SearchPaneProps {
@@ -215,9 +216,7 @@ export function SearchPane({ discussion }: SearchPaneProps): React.JSX.Element {
           />
         )}
 
-        {!promptOpen && activeTab && isLocal && (
-          <Placeholder text={`${tool?.label ?? ''} — قادم في المرحلة الخامسة`} />
-        )}
+        {!promptOpen && activeTab && isLocal && <RududResults tab={activeTab} />}
       </div>
     </section>
   )
