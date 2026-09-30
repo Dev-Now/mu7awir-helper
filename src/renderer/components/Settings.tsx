@@ -14,6 +14,7 @@ interface DictationStatus {
   modelPath: string | null
   progress: { what: string; received: number; total: number } | null
   error: string | null
+  errorDetail: string | null
 }
 
 const mb = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(0)} م.ب`
@@ -127,7 +128,17 @@ export function Settings(): React.JSX.Element | null {
                 {dictation.progress.total > 0 && ` / ${mb(dictation.progress.total)}`}
               </p>
             )}
-            {dictation?.error && <p className="settings__error">{dictation.error}</p>}
+            {dictation?.error && (
+              <p className="settings__error">
+                {dictation.error}
+                {dictation.errorDetail && (
+                  <>
+                    <br />
+                    <span className="settings__path">{dictation.errorDetail}</span>
+                  </>
+                )}
+              </p>
+            )}
           </section>
 
           <section className="settings__section">

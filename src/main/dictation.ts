@@ -7,20 +7,55 @@
  * out of the installer.
  */
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { createWriteStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
 
-/** Prebuilt CPU binary; small enough to fetch on demand. */
-export const WHISPER_BIN_URL =
-  'https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.4/whisper-bin-x64.zip'
+/** A pinned download source. The checksum guards against a truncated or swapped asset. */
+export interface Candidate {
+  url: string
+  /** Pinned SHA-256 of the exact bytes at that URL. Omitted when the asset is not pinned. */
+  sha256?: string
+}
+
+/**
+ * whisper.cpp is inconsistent about attaching Windows binaries to its release tags — v1.7.4
+ * (pinned here originally, hence issue #4), v1.7.5 and even v1.9.4 ship none at all. So the
+ * binary is not a single URL but a short list of tags known to carry whisper-bin-x64.zip,
+ * tried in order: the first that downloads *and* matches its checksum wins.
+ */
+export const WHISPER_BIN_CANDIDATES: readonly Candidate[] = [
+  {
+    url: 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.6/whisper-bin-x64.zip',
+    sha256: '0d2eca299c248f965bd0341bcb219db4b433c7f0c0ce2200d4df85765e8156a9'
+  },
+  {
+    url: 'https://github.com/ggml-org/whisper.cpp/releases/download/b5130/whisper-bin-x64.zip',
+    sha256: 'f9ec6c52a2e949b62ab51fa21d0d497958f9e41c3010c157c4e42932d5316f3c'
+  }
+]
+
 /**
  * large-v3-turbo quantised: ~574 MB and several times faster than large-v3, at a few
- * points of WER. The model is swappable for exactly this reason.
+ * points of WER. The model is swappable for exactly this reason. HuggingFace serves it from
+ * a branch rather than a tag, so there is nothing stable to pin a checksum to.
  */
-export const WHISPER_MODEL_URL =
-  'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin'
+export const WHISPER_MODEL_CANDIDATES: readonly Candidate[] = [
+  { url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin' }
+]
+
+/** Where `install()` fetches from. Overridable so tests can point at a local server. */
+export interface AssetSources {
+  bin: readonly Candidate[]
+  model: readonly Candidate[]
+}
+
+const DEFAULT_ASSETS: AssetSources = {
+  bin: WHISPER_BIN_CANDIDATES,
+  model: WHISPER_MODEL_CANDIDATES
+}
 
 export interface DictationPaths {
   binaryPath: string | null
@@ -31,16 +66,24 @@ export interface DictationStatus extends DictationPaths {
   ready: boolean
   /** Non-null while an asset is being fetched. */
   progress: { what: string; received: number; total: number } | null
+  /** A readable Arabic sentence, for the settings panel. */
   error: string | null
+  /** The underlying failure, kept apart so the UI can render it left-to-right. */
+  errorDetail: string | null
 }
 
 export type ProgressHandler = (received: number, total: number) => void
 
-/** Stream a URL to disk, reporting progress. Downloads to a temp name and renames. */
+/**
+ * Stream a URL to disk, reporting progress. Downloads to a temp name and renames, so a
+ * failure never leaves a half-written file under the real name. With `sha256`, the bytes
+ * are verified before that rename.
+ */
 export async function downloadTo(
   url: string,
   destination: string,
-  onProgress?: ProgressHandler
+  onProgress?: ProgressHandler,
+  sha256?: string
 ): Promise<void> {
   const response = await fetch(url, { redirect: 'follow' })
   if (!response.ok || !response.body) {
@@ -53,14 +96,64 @@ export async function downloadTo(
   await fs.mkdir(path.dirname(destination), { recursive: true })
   const temp = `${destination}.part`
 
+  const expected = sha256?.toLowerCase()
+  // Hashing in the progress handler is a single pass over bytes we already touch; piping
+  // through a transform, or reading 574 MB back off disk, would buy nothing.
+  const hash = expected ? createHash('sha256') : null
+
   const source = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0])
   source.on('data', (chunk: Buffer) => {
     received += chunk.length
+    hash?.update(chunk)
     onProgress?.(received, total)
   })
 
-  await pipeline(source, createWriteStream(temp))
-  await fs.rename(temp, destination)
+  try {
+    await pipeline(source, createWriteStream(temp))
+    if (expected && hash) {
+      const digest = hash.digest('hex')
+      if (digest !== expected) {
+        throw new Error(`checksum mismatch for ${url}: expected ${expected}, got ${digest}`)
+      }
+    }
+    // Only verified bytes may reach the final name: `install()` unzips whatever sits there,
+    // and `fetchAsset` skips the download entirely when the file already exists.
+    await fs.rename(temp, destination)
+  } catch (err) {
+    await fs.rm(temp, { force: true })
+    throw err
+  }
+}
+
+export interface MirrorOptions {
+  onProgress?: ProgressHandler
+  /** Fired before each attempt, so a caller can reset its progress meter. */
+  onAttempt?: (index: number) => void
+}
+
+/**
+ * Try each pinned source in turn and return the one that worked. A checksum mismatch is
+ * treated exactly like a 404 — that mirror is not the file we pinned, so the next candidate
+ * gets a go. Rejects with every failure when none of them works.
+ */
+export async function downloadFirstAvailable(
+  candidates: readonly Candidate[],
+  destination: string,
+  options: MirrorOptions = {}
+): Promise<string> {
+  const failures: string[] = []
+  for (const [index, candidate] of candidates.entries()) {
+    options.onAttempt?.(index)
+    try {
+      await downloadTo(candidate.url, destination, options.onProgress, candidate.sha256)
+      return candidate.url
+    } catch (err) {
+      failures.push((err as Error).message)
+    }
+  }
+  throw new Error(
+    failures.join('; ') || `no download sources configured for ${path.basename(destination)}`
+  )
 }
 
 const exists = async (file: string): Promise<boolean> =>
@@ -69,9 +162,19 @@ const exists = async (file: string): Promise<boolean> =>
     () => false
   )
 
+/**
+ * whisper-cli is the real binary. `main` is a deprecation stub in current builds — it prints
+ * a notice to stdout and exits 1 — and it sorts *before* whisper-cli in the extracted Release
+ * folder, so the walk has to rank what it finds rather than take the first hit. `main` stays
+ * on as a fallback for the older builds a user may point us at from settings.
+ */
+const BINARY_NAMES = ['whisper-cli', 'main']
+
 /** Locate whisper-cli.exe (or whisper-cli) anywhere under a directory. */
 export async function findWhisperBinary(root: string): Promise<string | null> {
-  const wanted = process.platform === 'win32' ? ['whisper-cli.exe', 'main.exe'] : ['whisper-cli', 'main']
+  const suffix = process.platform === 'win32' ? '.exe' : ''
+  const wanted = BINARY_NAMES.map((name) => `${name}${suffix}`)
+  const found = new Map<string, string>()
   const queue = [root]
   while (queue.length > 0) {
     const dir = queue.shift()!
@@ -83,9 +186,18 @@ export async function findWhisperBinary(root: string): Promise<string | null> {
     }
     for (const entry of entries) {
       const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) queue.push(full)
-      else if (wanted.includes(entry.name.toLowerCase())) return full
+      if (entry.isDirectory()) {
+        queue.push(full)
+        continue
+      }
+      const name = entry.name.toLowerCase()
+      if (name === wanted[0]) return full // nothing can outrank whisper-cli
+      if (wanted.includes(name) && !found.has(name)) found.set(name, full)
     }
+  }
+  for (const name of wanted) {
+    const hit = found.get(name)
+    if (hit) return hit
   }
   return null
 }
@@ -144,24 +256,31 @@ export function runWhisper(options: RunOptions, spawnImpl: SpawnLike = spawn): P
   })
 }
 
+/** A single quote is escaped by doubling it inside a PowerShell single-quoted string. */
+const psQuote = (value: string): string => value.replace(/'/g, "''")
+
 export class Dictation {
   private readonly dir: string
   private readonly onStatus: (status: DictationStatus) => void
   private paths: DictationPaths = { binaryPath: null, modelPath: null }
   private progress: DictationStatus['progress'] = null
   private error: string | null = null
+  private errorDetail: string | null = null
   private busy = false
 
   private readonly spawnImpl: SpawnLike
+  private readonly assets: AssetSources
 
   constructor(
     userDataDir: string,
     onStatus: (status: DictationStatus) => void,
-    spawnImpl: SpawnLike = spawn
+    spawnImpl: SpawnLike = spawn,
+    assets: AssetSources = DEFAULT_ASSETS
   ) {
     this.dir = path.join(userDataDir, 'whisper')
     this.onStatus = onStatus
     this.spawnImpl = spawnImpl
+    this.assets = assets
   }
 
   get assetDir(): string {
@@ -173,7 +292,8 @@ export class Dictation {
       ...this.paths,
       ready: Boolean(this.paths.binaryPath && this.paths.modelPath),
       progress: this.progress,
-      error: this.error
+      error: this.error,
+      errorDetail: this.errorDetail
     }
   }
 
@@ -209,25 +329,29 @@ export class Dictation {
     if (this.busy) return this.status()
     this.busy = true
     this.error = null
+    this.errorDetail = null
 
     try {
       await fs.mkdir(this.dir, { recursive: true })
 
       if (!this.paths.binaryPath) {
         const zip = path.join(this.dir, 'whisper-bin-x64.zip')
-        await this.fetchAsset('برنامج whisper', WHISPER_BIN_URL, zip)
+        await this.fetchAsset('برنامج whisper', this.assets.bin, zip)
         await this.unzip(zip)
         await fs.rm(zip, { force: true })
       }
 
       if (!this.paths.modelPath) {
         const model = path.join(this.dir, 'ggml-large-v3-turbo-q5_0.bin')
-        await this.fetchAsset('النموذج الصوتي', WHISPER_MODEL_URL, model)
+        await this.fetchAsset('النموذج الصوتي', this.assets.model, model)
       }
 
       await this.refresh()
     } catch (err) {
-      this.error = (err as Error).message
+      // The panel is Arabic and RTL; the raw fetch error belongs beside the sentence, not
+      // in place of it.
+      this.error = 'تعذّر تنزيل ملفات الإملاء. تحقّق من الاتصال ثم أعد المحاولة.'
+      this.errorDetail = (err as Error).message.trim().slice(0, 300)
     } finally {
       this.progress = null
       this.busy = false
@@ -236,18 +360,35 @@ export class Dictation {
     return this.status()
   }
 
-  private async fetchAsset(what: string, url: string, destination: string): Promise<void> {
+  private async fetchAsset(
+    what: string,
+    candidates: readonly Candidate[],
+    destination: string
+  ): Promise<void> {
     if (await exists(destination)) return
-    this.progress = { what, received: 0, total: 0 }
-    this.publish()
+
     let lastPublished = 0
-    await downloadTo(url, destination, (received, total) => {
-      this.progress = { what, received, total }
-      // Publishing every chunk would flood the renderer; twice a second is plenty.
-      const now = Date.now()
-      if (now - lastPublished > 500) {
-        lastPublished = now
-        this.publish()
+    const reset = (): void => {
+      this.progress = { what, received: 0, total: 0 }
+      // Clear the throttle too, or the reset itself could be the update that gets swallowed.
+      lastPublished = 0
+      this.publish()
+    }
+    reset()
+
+    await downloadFirstAvailable(candidates, destination, {
+      // A fallback restarts from zero, so zero the meter rather than let it jump backwards.
+      onAttempt: (index) => {
+        if (index > 0) reset()
+      },
+      onProgress: (received, total) => {
+        this.progress = { what, received, total }
+        // Publishing every chunk would flood the renderer; twice a second is plenty.
+        const now = Date.now()
+        if (now - lastPublished > 500) {
+          lastPublished = now
+          this.publish()
+        }
       }
     })
   }
@@ -264,7 +405,7 @@ export class Dictation {
           '-NoProfile',
           '-NonInteractive',
           '-Command',
-          `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${this.dir}' -Force`
+          `Expand-Archive -LiteralPath '${psQuote(zip)}' -DestinationPath '${psQuote(this.dir)}' -Force`
         ],
         { windowsHide: true }
       )

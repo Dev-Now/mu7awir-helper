@@ -1304,12 +1304,18 @@ function m6Steps(win: BrowserWindow): Step[] {
     {
       name: 'M6 dictation reports itself ready once its assets are present',
       run: async () => {
-        const status = await evaluate<{ ready: boolean; modelPath: string | null }>(
-          win,
-          `window.api.dictationStatus()`
-        )
+        const status = await evaluate<{
+          ready: boolean
+          binaryPath: string | null
+          modelPath: string | null
+        }>(win, `window.api.dictationStatus()`)
         assert(status.ready, 'the stand-in whisper assets should be detected')
         assert(status.modelPath?.includes('ggml-'), `model path: ${status.modelPath}`)
+        // Never the deprecated `main` stub sitting beside it — see issue #4.
+        assert(
+          status.binaryPath?.endsWith('whisper-cli.exe'),
+          `binary path: ${status.binaryPath}`
+        )
       }
     },
     {

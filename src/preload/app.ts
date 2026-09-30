@@ -7,6 +7,7 @@ interface DictationStatus {
   modelPath: string | null
   progress: { what: string; received: number; total: number } | null
   error: string | null
+  errorDetail: string | null
 }
 
 interface Bounds {

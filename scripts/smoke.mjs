@@ -20,6 +20,9 @@ const FAKE_TRANSCRIPT = 'النص المملى'
 const whisperDir = path.join(userData, 'whisper')
 mkdirSync(whisperDir, { recursive: true })
 writeFileSync(path.join(whisperDir, 'whisper-cli.exe'), '')
+// A decoy: real whisper.cpp archives ship a deprecated `main` stub that sorts first in the
+// directory, and the app must not pick it (issue #4).
+writeFileSync(path.join(whisperDir, 'main.exe'), '')
 writeFileSync(path.join(whisperDir, 'ggml-fake.bin'), '')
 
 const child = spawn(
