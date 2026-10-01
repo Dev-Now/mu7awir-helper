@@ -1,0 +1,65 @@
+[
+  {
+    "id": "quran",
+    "label": "الباحث القرآني",
+    "shortcut": "Ctrl+1",
+    "type": "web",
+    "homeUrl": "https://tafsir.app/",
+    "searchUrl": "https://tafsir.app/search?q={q}",
+    "enabled": true
+  },
+  {
+    "id": "hadith",
+    "label": "الباحث الحديثي",
+    "shortcut": "Ctrl+2",
+    "type": "web",
+    "homeUrl": "https://sunnah.one/",
+    "searchUrl": "https://sunnah.one/?s={q}",
+    "enabled": true
+  },
+  {
+    "id": "fatwa",
+    "label": "إسلام سؤال وجواب",
+    "shortcut": "Ctrl+3",
+    "type": "web",
+    "homeUrl": "https://islamqa.info/ar",
+    "searchUrl": "https://islamqa.info/ar/search?q={q}",
+    "enabled": true
+  },
+  {
+    "id": "shamela",
+    "label": "المكتبة الشاملة",
+    "shortcut": "Ctrl+4",
+    "type": "web",
+    "homeUrl": "https://shamela.ws/",
+    "searchUrl": "https://shamela.ws/search?q={q}",
+    "enabled": true
+  },
+  {
+    "id": "basaer",
+    "label": "بصائر",
+    "shortcut": "Ctrl+5",
+    "type": "web",
+    "homeUrl": "https://basaer.shuounislamiya.org/",
+    "searchUrl": null,
+    "enabled": true
+  },
+  {
+    "id": "fiqh",
+    "label": "مدونة الفقه المالكي",
+    "shortcut": "Ctrl+6",
+    "type": "web",
+    "homeUrl": "",
+    "searchUrl": null,
+    "enabled": false
+  },
+  {
+    "id": "rudud",
+    "label": "مكتبة الردود",
+    "shortcut": "Ctrl+7",
+    "type": "local",
+    "homeUrl": "",
+    "searchUrl": null,
+    "enabled": true
+  }
+]

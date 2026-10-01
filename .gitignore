@@ -1,0 +1,9 @@
+node_modules/
+out/
+dist/
+.vite/
+*.log
+
+# Generated from the Telegram export by `npm run build:rudud`
+resources/rudud.json
+*.tsbuildinfo

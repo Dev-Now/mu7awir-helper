@@ -1,0 +1,36 @@
+appId: org.mu7awir.helper
+productName: مساعد المحاور
+copyright: ''
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+
+# tools.default.json seeds the user's editable registry; rudud.json is the generated
+# search index. Both are read through `process.resourcesPath` when packaged.
+extraResources:
+  - from: resources
+    to: resources
+    filter:
+      - '**/*'
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: mu7awir-helper-${version}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: مساعد المحاور
+
+# Everything runs locally; there is no update server.
+publish: null
