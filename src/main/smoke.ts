@@ -1393,24 +1393,34 @@ function m6Steps(win: BrowserWindow): Step[] {
       }
     },
     {
-      name: 'M6 a too-short press is rejected rather than transcribed',
+      name: 'M6 a tap opens hands-free dictation, and the next press ends it',
       run: async () => {
-        const before = await evaluate<string>(
-          win,
-          `document.querySelector('${sel('draft-editor')}').value`
-        )
+        const draft = (): Promise<string> =>
+          evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').value`)
+        const before = await draft()
+        const transcripts = (text: string): number => text.split('النص المملى').length - 1
+
         await pressKey(win, 'F4', 'keydown')
-        await sleep(120) // well under the minimum clip length
+        await sleep(60) // a tap, well under the hold threshold
         await pressKey(win, 'F4', 'keyup')
-        await waitFor(win, `${count('dictation-hud')} === 0`, 'the HUD to close')
+        await waitFor(
+          win,
+          `(document.querySelector('${sel('dictation-hud')}') || {}).dataset?.mode === 'handsfree'`,
+          'hands-free mode'
+        )
+
+        // The key is up, yet the microphone stays open.
+        await sleep(1_000)
+        assertEqual(await hudPhase(win), 'recording', 'hands-free keeps recording after release')
+
+        await pressKey(win, 'F4', 'keydown')
+        await waitFor(win, `${count('dictation-hud')} === 0`, 'dictation to finish', 30_000)
+        await pressKey(win, 'F4', 'keyup')
         await sleep(300)
 
-        assertEqual(
-          await evaluate<string>(win, `document.querySelector('${sel('draft-editor')}').value`),
-          before,
-          'a mis-press must not insert anything'
-        )
-        assert((await hudPhase(win)) === null, 'the HUD should be gone')
+        const after = await draft()
+        assertEqual(transcripts(after), transcripts(before) + 1, 'the hands-free phrase lands in the draft')
+        assert((await hudPhase(win)) === null, 'the release after stopping must not restart it')
       }
     }
   ]

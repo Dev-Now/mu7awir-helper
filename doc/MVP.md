@@ -83,7 +83,8 @@ mu7awir-helper/
 │  │  ├─ store.ts                 # workspace.json load / debounced atomic save
 │  │  ├─ tools.ts                 # plugin registry + {q} templating
 │  │  ├─ rududIndex.ts            # MiniSearch over rudud.json
-│  │  ├─ dictation.ts             # whisper-cli spawn, model bootstrap
+│  │  ├─ dictation.ts             # model bootstrap, GPU detection, backend choice
+│  │  ├─ whisperServer.ts         # resident whisper-server process
 │  │  ├─ shortcuts.ts             # one keymap table, bound to all webContents
 │  │  └─ ipc.ts
 │  ├─ preload/
@@ -214,22 +215,29 @@ A plain `<textarea dir="rtl">`, deliberately not a rich-text editor: the output 
 
 ## Dictation — local whisper.cpp
 
+Dictation is live: speech is cut into phrases at natural pauses while the user is still talking, and each phrase lands in the draft about a second after it ends (issue #5).
+
 ```
-hold F4 ──▶ getUserMedia (mono, 16 kHz, NS+AEC)
-         ──▶ MediaRecorder ──▶ decodeAudioData ──▶ OfflineAudioContext resample 16 kHz
-         ──▶ hand-rolled WAV bytes ──▶ IPC ──▶ temp file
-         ──▶ whisper-cli.exe -m <model> -l ar -nt -otxt -f clip.wav
-         ──▶ insert at cursor in the active draft
+F4 ──▶ getUserMedia (mono, NS+AEC) ──▶ AudioContext @ 16 kHz ──▶ AudioWorklet tap
+   ──▶ Segmenter: energy gate vs. a 3 s minimum-statistics noise floor
+       closes a phrase on a 0.5 s pause, caps it at 15 s (cut at the quietest frame)
+   ──▶ hand-rolled WAV bytes ──▶ IPC, one phrase at a time
+   ──▶ whisper-server (resident; CUDA build if there is an NVIDIA GPU, else CPU)
+       └─ fallback: whisper-cli per phrase
+   ──▶ insert at the cursor, strictly in spoken order
 ```
 
 Encoding the WAV in the renderer (~40 lines) avoids bundling **ffmpeg**, which would add ~80 MB and a licensing question for no benefit.
 
+**Why a resident server and a GPU.** whisper-cli reloads the 574 MB model on every call, and on CPU large-v3-turbo runs *slower* than real time: 46 s for a 35 s clip on a 6-core i5, which is what made the original push-to-talk feel useless and let its flat 180 s timeout kill long recordings. `whisper-server` keeps the model loaded, and the official CUDA build does a 12 s phrase in ~0.3 s on an RTX 3060 Ti (1.4 s for the first, which includes loading the model). The server is started on the first F4 press, stopped after 15 idle minutes and on quit, and started with `-nc` so requests never share hidden state; continuity comes from passing the last ~200 characters as the prompt. The CUDA build is compiled for sm_52 only, so a newer card JIT-compiles its kernels on the very first run (~15 s, then cached by the driver).
+
 **Bootstrap, on first use rather than in the installer** — keeps the download out of the app bundle:
 
 - Download `whisper-bin-x64.zip` from the whisper.cpp releases and `ggml-large-v3-turbo-q5_0.bin` (~574 MB) from the HuggingFace `ggerganov/whisper.cpp` repo, both into `userData`, with a progress UI.
+- When `nvidia-smi` reports a card, also download `whisper-cublas-12.4.0-bin-x64.zip` (443 MB, CUDA runtime included, checksum pinned) into `userData/whisper/cuda`. Existing installs get a button for it in Settings. If the CUDA server will not start, dictation falls back to the CPU server and Settings says why.
 - Settings let the user point at an existing binary or model path instead, and swap the model (`large-v3-turbo` ⇄ `large-v3` ⇄ `medium-q5_0`) to trade speed for accuracy.
 
-**UX:** hold `F4` → a recording HUD with a live input-level meter; release → «جارٍ التفريغ…» → text inserted at the cursor as one undoable edit. `Esc` cancels.
+**UX:** hold `F4` to talk and release to finish, or tap `F4` for hands-free dictation and press it again to stop. While recording, the HUD shows the level meter, the number of phrases still being transcribed and — on a GPU only, where it is nearly free — a live preview of the phrase being spoken. After the microphone closes, «جارٍ إنهاء التفريغ…» stays up until the last phrase is in. `Esc` cancels: the open phrase and anything not yet inserted are dropped, and text already inserted stays. A transcript consisting only of a subtitle credit whisper hallucinates over noise («ترجمة نانسي قنقر») is discarded.
 
 **Expectation setting:** published Arabic WER is ~37% for large-v3 and ~40% for turbo on hard dialectal benchmarks. Clear MSA from a single speaker on a decent mic does far better, but dictation is a drafting aid the user edits afterward, not a transcription service. The swappable model is the mitigation.
 
@@ -255,7 +263,7 @@ One declarative table in `src/main/shortcuts.ts`, bound to **every** `webContent
 | Copy selection into active draft | `Ctrl+Enter` |
 | Copy whole draft | `Ctrl+Shift+A` |
 | Find in page (Electron `findInPage`) | `Ctrl+F` |
-| Push-to-talk dictation | hold `F4` |
+| Dictation | hold `F4` (push-to-talk), or tap `F4` to start and stop hands-free |
 
 `Ctrl+F` matters more than it looks: embedded views have no Chrome find bar, so without it the search pane loses a function the user expects from a browser.
 

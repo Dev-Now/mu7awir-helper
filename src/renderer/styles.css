@@ -778,6 +778,27 @@ button {
   background: var(--accent);
 }
 
+.hud__pending {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--bg-input);
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* The phrase still being spoken: provisional, so it is drawn quieter than real text. */
+.hud__preview {
+  max-width: min(46vw, 520px);
+  overflow: hidden;
+  color: var(--text-faint);
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── settings ──────────────────────────────────────────────────────────── */
 
 .sidebar-peek {

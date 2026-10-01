@@ -1,27 +1,29 @@
-import { encodeWav, WHISPER_SAMPLE_RATE } from '@shared/wav'
+import { WHISPER_SAMPLE_RATE } from '@shared/wav'
+import pcmWorkletUrl from './pcm-worklet.ts?worker&url'
 
 /**
- * Push-to-talk microphone capture.
+ * Streaming microphone capture.
  *
- * Records with MediaRecorder, then decodes and resamples to the 16 kHz mono PCM that
- * whisper.cpp expects. Doing the conversion here keeps ffmpeg out of the build.
+ * The audio context runs at whisper's 16 kHz, so Chromium resamples the microphone for us,
+ * and an AudioWorklet hands over raw samples while the user is still speaking — nothing
+ * waits for the key to be released (issue #5). No ffmpeg, no decode step.
  */
 export class Recorder {
   private stream: MediaStream | null = null
-  private recorder: MediaRecorder | null = null
-  private chunks: Blob[] = []
   private context: AudioContext | null = null
   private analyser: AnalyserNode | null = null
+  private tap: AudioWorkletNode | null = null
   private levelData: Uint8Array<ArrayBuffer> | null = null
 
   get recording(): boolean {
-    return this.recorder?.state === 'recording'
+    return this.context !== null
   }
 
-  async start(): Promise<void> {
+  /** Start capturing; `onSamples` receives 16 kHz mono PCM as it arrives. */
+  async start(onSamples: (samples: Float32Array) => void): Promise<void> {
     if (this.recording) return
 
-    this.stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
         echoCancellation: true,
@@ -30,20 +32,36 @@ export class Recorder {
       }
     })
 
-    // A live analyser drives the level meter in the HUD.
-    this.context = new AudioContext()
-    this.analyser = this.context.createAnalyser()
-    this.analyser.fftSize = 512
-    // Explicitly ArrayBuffer-backed: getByteTimeDomainData rejects SharedArrayBuffer views.
-    this.levelData = new Uint8Array(new ArrayBuffer(this.analyser.fftSize))
-    this.context.createMediaStreamSource(this.stream).connect(this.analyser)
+    const context = new AudioContext({ sampleRate: WHISPER_SAMPLE_RATE })
+    try {
+      await context.audioWorklet.addModule(pcmWorkletUrl)
+      const source = context.createMediaStreamSource(stream)
 
-    this.chunks = []
-    this.recorder = new MediaRecorder(this.stream)
-    this.recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) this.chunks.push(event.data)
+      // A live analyser drives the level meter in the HUD.
+      const analyser = context.createAnalyser()
+      analyser.fftSize = 512
+      source.connect(analyser)
+
+      const tap = new AudioWorkletNode(context, 'pcm-tap', { channelCount: 1 })
+      tap.port.onmessage = (event: MessageEvent<Float32Array>) => onSamples(event.data)
+      source.connect(tap)
+      // A node only renders while it leads somewhere; a muted gain keeps the tap running
+      // without echoing the microphone back out of the speakers.
+      const mute = context.createGain()
+      mute.gain.value = 0
+      tap.connect(mute).connect(context.destination)
+
+      this.stream = stream
+      this.context = context
+      this.analyser = analyser
+      this.tap = tap
+      // Explicitly ArrayBuffer-backed: getByteTimeDomainData rejects SharedArrayBuffer views.
+      this.levelData = new Uint8Array(new ArrayBuffer(analyser.fftSize))
+    } catch (err) {
+      stream.getTracks().forEach((track) => track.stop())
+      void context.close().catch(() => {})
+      throw err
     }
-    this.recorder.start()
   }
 
   /** Current input level, 0..1, for the meter. */
@@ -55,56 +73,16 @@ export class Recorder {
     return peak
   }
 
-  /** Stop recording and return the clip as 16 kHz mono WAV bytes. */
-  async stop(): Promise<Uint8Array | null> {
-    const recorder = this.recorder
-    if (!recorder || recorder.state === 'inactive') {
-      this.teardown()
-      return null
-    }
-
-    const finished = new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve()
-    })
-    recorder.stop()
-    await finished
-
-    const blob = new Blob(this.chunks, { type: recorder.mimeType || 'audio/webm' })
-    this.teardown()
-    if (blob.size === 0) return null
-
-    return encodeWav(await toMonoPcm(await blob.arrayBuffer()), WHISPER_SAMPLE_RATE)
-  }
-
-  cancel(): void {
-    if (this.recorder?.state === 'recording') this.recorder.stop()
-    this.teardown()
-  }
-
-  private teardown(): void {
+  /** Stop capturing. Samples already delivered stay with the caller. */
+  stop(): void {
+    if (this.tap) this.tap.port.onmessage = null
+    this.tap?.disconnect()
     this.stream?.getTracks().forEach((track) => track.stop())
     void this.context?.close().catch(() => {})
     this.stream = null
-    this.recorder = null
     this.context = null
     this.analyser = null
+    this.tap = null
     this.levelData = null
-  }
-}
-
-/** Decode compressed audio and resample it to 16 kHz mono. */
-async function toMonoPcm(encoded: ArrayBuffer): Promise<Float32Array> {
-  const decodeContext = new AudioContext()
-  try {
-    const decoded = await decodeContext.decodeAudioData(encoded)
-    const frames = Math.ceil((decoded.duration * WHISPER_SAMPLE_RATE) / 1)
-    const offline = new OfflineAudioContext(1, Math.max(1, frames), WHISPER_SAMPLE_RATE)
-    const source = offline.createBufferSource()
-    source.buffer = decoded
-    source.connect(offline.destination)
-    source.start()
-    return (await offline.startRendering()).getChannelData(0)
-  } finally {
-    void decodeContext.close().catch(() => {})
   }
 }

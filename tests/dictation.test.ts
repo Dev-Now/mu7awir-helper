@@ -7,15 +7,21 @@ import { EventEmitter } from 'node:events'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { encodeWav, wavDurationSeconds, WHISPER_SAMPLE_RATE } from '@shared/wav'
 import {
+  detectNvidiaGpu,
   Dictation,
   downloadFirstAvailable,
   downloadTo,
+  findServerBinary,
   findWhisperBinary,
   parseTranscript,
   runWhisper,
   WHISPER_BIN_CANDIDATES,
+  WHISPER_CUDA_BIN_CANDIDATES,
   type SpawnLike
 } from '../src/main/dictation'
+
+/** Hermetic defaults: no dependence on this machine's GPU, no server process. */
+const offline = { detectGpu: async () => null, useServer: false }
 
 let dir: string
 
@@ -129,6 +135,18 @@ describe('parseTranscript', () => {
   it('returns an empty string when nothing was heard', () => {
     expect(parseTranscript('\n[BLANK_AUDIO]\n')).toBe('')
   })
+
+  it('drops the subtitle credits whisper recites over noise', () => {
+    expect(parseTranscript(' ترجمة نانسي قنقر\n')).toBe('')
+    expect(parseTranscript('ترجمة نانسي قنقر.')).toBe('')
+    expect(parseTranscript('اشتركوا في القناة!')).toBe('')
+  })
+
+  it('keeps real speech that merely mentions those words', () => {
+    expect(parseTranscript('أرجو أن تشتركوا في القناة الرسمية للجمعية')).toBe(
+      'أرجو أن تشتركوا في القناة الرسمية للجمعية'
+    )
+  })
 })
 
 describe('runWhisper', () => {
@@ -162,6 +180,17 @@ describe('runWhisper', () => {
     await expect(
       runWhisper({ binaryPath: path.join(dir, 'nope.exe'), modelPath: 'm', wavPath: 'w' })
     ).rejects.toThrow()
+  })
+
+  it('passes the thread count and the continuity prompt when given', async () => {
+    const { impl, calls } = fakeSpawn({ stdout: 'x' })
+    await runWhisper(
+      { binaryPath: 'w', modelPath: 'm', wavPath: 'c', threads: 6, prompt: 'ما سبق' },
+      impl
+    )
+    expect(calls[0].args).toEqual([
+      '-m', 'm', '-f', 'c', '-l', 'ar', '-nt', '-np', '-t', '6', '--prompt', 'ما سبق'
+    ])
   })
 
   it('gives up rather than hanging forever', async () => {
@@ -209,6 +238,54 @@ describe('findWhisperBinary', () => {
   it('still falls back to main when whisper-cli is absent', async () => {
     await fs.writeFile(path.join(dir, exe('main')), '')
     expect(await findWhisperBinary(dir)).toBe(path.join(dir, exe('main')))
+  })
+
+  it('does not wander into skipped folders such as the CUDA build', async () => {
+    const cuda = path.join(dir, 'cuda', 'Release')
+    await fs.mkdir(cuda, { recursive: true })
+    await fs.writeFile(path.join(cuda, exe('whisper-cli')), '')
+    expect(await findWhisperBinary(dir, ['cuda'])).toBeNull()
+    expect(await findWhisperBinary(dir)).toBe(path.join(cuda, exe('whisper-cli')))
+  })
+})
+
+describe('findServerBinary', () => {
+  it('finds whisper-server beside whisper-cli', async () => {
+    await fs.writeFile(path.join(dir, exe('whisper-server')), '')
+    expect(await findServerBinary(dir)).toBe(path.join(dir, exe('whisper-server')))
+  })
+
+  it('returns null for builds that do not ship one', async () => {
+    expect(await findServerBinary(dir)).toBeNull()
+  })
+})
+
+describe('detectNvidiaGpu', () => {
+  it('reports the card nvidia-smi names', async () => {
+    const { impl, calls } = fakeSpawn({ stdout: 'NVIDIA GeForce RTX 3060 Ti\r\n' })
+    await expect(detectNvidiaGpu(impl)).resolves.toBe('NVIDIA GeForce RTX 3060 Ti')
+    expect(calls[0].command).toBe('nvidia-smi')
+  })
+
+  it('reports no GPU when nvidia-smi is missing', async () => {
+    const impl = ((() => {
+      const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; kill: () => void }
+      child.stdout = new EventEmitter()
+      child.kill = () => {}
+      setTimeout(() => child.emit('error', new Error('spawn nvidia-smi ENOENT')), 5)
+      return child
+    }) as unknown) as SpawnLike
+    await expect(detectNvidiaGpu(impl)).resolves.toBeNull()
+  })
+
+  it('does not mistake an error message for a card', async () => {
+    const { impl } = fakeSpawn({
+      stdout: 'NVIDIA-SMI has failed because it could not communicate with the driver',
+      code: 9
+    })
+    await expect(detectNvidiaGpu(impl)).resolves.toBeNull()
+    const garbage = fakeSpawn({ stdout: 'No devices were found' })
+    await expect(detectNvidiaGpu(garbage.impl)).resolves.toBeNull()
   })
 })
 
@@ -361,14 +438,24 @@ describe('WHISPER_BIN_CANDIDATES', () => {
   })
 })
 
+describe('WHISPER_CUDA_BIN_CANDIDATES', () => {
+  it('pins a checksum for the CUDA build', () => {
+    expect(WHISPER_CUDA_BIN_CANDIDATES.length).toBeGreaterThanOrEqual(1)
+    for (const candidate of WHISPER_CUDA_BIN_CANDIDATES) {
+      expect(candidate.sha256).toMatch(/^[0-9a-f]{64}$/)
+      expect(candidate.url).toMatch(/whisper-cublas-.*-bin-x64\.zip$/)
+    }
+  })
+})
+
 describe('Dictation', () => {
   it('reports itself unready with nothing installed', async () => {
-    const status = await new Dictation(dir, () => {}).refresh()
+    const status = await new Dictation(dir, () => {}, offline).refresh()
     expect(status).toMatchObject({ ready: false, binaryPath: null, modelPath: null, error: null })
   })
 
   it('becomes ready once a binary and model are present', async () => {
-    const service = new Dictation(dir, () => {})
+    const service = new Dictation(dir, () => {}, offline)
     const assets = service.assetDir
     await fs.mkdir(assets, { recursive: true })
     const name = process.platform === 'win32' ? 'whisper-cli.exe' : 'whisper-cli'
@@ -388,7 +475,7 @@ describe('Dictation', () => {
     await fs.writeFile(binary, '')
     await fs.writeFile(model, '')
 
-    const status = await new Dictation(dir, () => {}).refresh({
+    const status = await new Dictation(dir, () => {}, offline).refresh({
       binaryPath: binary,
       modelPath: model
     })
@@ -396,12 +483,12 @@ describe('Dictation', () => {
   })
 
   it('refuses to transcribe before it is set up', async () => {
-    await expect(new Dictation(dir, () => {}).transcribe(new Uint8Array(44))).rejects.toThrow()
+    await expect(new Dictation(dir, () => {}, offline).transcribe(new Uint8Array(44))).rejects.toThrow()
   })
 
   it('transcribes a clip and cleans up the temp file', async () => {
     const { impl } = fakeSpawn({ stdout: 'الصبر مفتاح الفرج' })
-    const service = new Dictation(dir, () => {}, impl)
+    const service = new Dictation(dir, () => {}, { ...offline, spawnImpl: impl })
     await fs.mkdir(service.assetDir, { recursive: true })
     const binary = path.join(service.assetDir, 'whisper-cli.exe')
     const model = path.join(service.assetDir, 'ggml-test.bin')
@@ -416,7 +503,7 @@ describe('Dictation', () => {
 
   it('cleans up the temp file even when whisper fails', async () => {
     const { impl } = fakeSpawn({ stderr: 'boom', code: 1 })
-    const service = new Dictation(dir, () => {}, impl)
+    const service = new Dictation(dir, () => {}, { ...offline, spawnImpl: impl })
     await fs.mkdir(service.assetDir, { recursive: true })
     const binary = path.join(service.assetDir, 'whisper-cli.exe')
     const model = path.join(service.assetDir, 'ggml-test.bin')
@@ -429,7 +516,7 @@ describe('Dictation', () => {
   })
 
   it('prefers whisper-cli when both binaries are installed', async () => {
-    const service = new Dictation(dir, () => {})
+    const service = new Dictation(dir, () => {}, offline)
     await fs.mkdir(service.assetDir, { recursive: true })
     await fs.writeFile(path.join(service.assetDir, exe('main')), '')
     await fs.writeFile(path.join(service.assetDir, exe('whisper-cli')), '')
@@ -446,9 +533,13 @@ describe('Dictation', () => {
     const port = typeof address === 'object' && address ? address.port : 0
 
     try {
-      const service = new Dictation(dir, () => {}, undefined, {
-        bin: [{ url: `http://127.0.0.1:${port}/whisper-bin-x64.zip` }],
-        model: []
+      const service = new Dictation(dir, () => {}, {
+        ...offline,
+        assets: {
+          bin: [{ url: `http://127.0.0.1:${port}/whisper-bin-x64.zip` }],
+          cudaBin: [],
+          model: []
+        }
       })
       const status = await service.install()
 
@@ -465,7 +556,7 @@ describe('Dictation', () => {
 
   it('publishes status changes to its listener', async () => {
     const seen: boolean[] = []
-    const service = new Dictation(dir, (s) => seen.push(s.ready))
+    const service = new Dictation(dir, (s) => seen.push(s.ready), offline)
     await service.refresh()
     expect(seen).toEqual([false])
   })

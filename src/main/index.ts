@@ -145,6 +145,13 @@ function registerIpc(): void {
   ipcMain.handle('dictation:transcribe', (_e, wav: Uint8Array) =>
     dictation.transcribe(Buffer.from(wav))
   )
+  ipcMain.handle('dictation:warm', () => dictation.warm())
+  ipcMain.handle('dictation:segment', (_e, wav: Uint8Array, prompt: string) =>
+    dictation.transcribeSegment(Buffer.from(wav), prompt)
+  )
+  ipcMain.handle('dictation:preview', (_e, wav: Uint8Array, prompt: string) =>
+    dictation.preview(Buffer.from(wav), prompt)
+  )
 
   ipcMain.handle('rudud:search', (_e, query: string) => rudud.search(query))
   ipcMain.handle('rudud:status', () => ({ available: rudud.available, size: rudud.size }))
@@ -243,7 +250,10 @@ void app.whenReady().then(async () => {
         mainWindow.webContents.send('dictation:status', status)
       }
     },
-    fakeTranscript ? fakeWhisperSpawn(fakeTranscript) : undefined
+    // A stand-in run has no server binary and must not depend on this machine's GPU.
+    fakeTranscript
+      ? { spawnImpl: fakeWhisperSpawn(fakeTranscript), useServer: false, detectGpu: async () => null }
+      : {}
   )
   await dictation.refresh()
 
@@ -272,6 +282,8 @@ app.on('window-all-closed', () => {
 
 // Autosave is debounced, so the last few hundred ms of edits only survive if we flush here.
 app.on('before-quit', (event) => {
+  // No whisper-server may outlive the app; it would hold the model in memory for nothing.
+  dictation?.dispose()
   if (!workspace) return
   event.preventDefault()
   workspace = null

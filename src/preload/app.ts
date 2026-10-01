@@ -8,6 +8,10 @@ interface DictationStatus {
   progress: { what: string; received: number; total: number } | null
   error: string | null
   errorDetail: string | null
+  gpu: string | null
+  cudaInstalled: boolean
+  backend: 'cuda' | 'cpu' | null
+  backendDetail: string | null
 }
 
 interface Bounds {
@@ -43,6 +47,13 @@ const api = {
   dictationStatus: (): Promise<DictationStatus> => ipcRenderer.invoke('dictation:status'),
   installDictation: (): Promise<DictationStatus> => ipcRenderer.invoke('dictation:install'),
   transcribe: (wav: Uint8Array): Promise<string> => ipcRenderer.invoke('dictation:transcribe', wav),
+  /** Start the resident model so it is loaded by the time the first phrase is ready. */
+  warmDictation: (): Promise<void> => ipcRenderer.invoke('dictation:warm'),
+  transcribeSegment: (wav: Uint8Array, prompt: string): Promise<string> =>
+    ipcRenderer.invoke('dictation:segment', wav, prompt),
+  /** Null when the model is busy with real phrases or no resident model is running. */
+  previewSegment: (wav: Uint8Array, prompt: string): Promise<string | null> =>
+    ipcRenderer.invoke('dictation:preview', wav, prompt),
   onDictationStatus: (handler: (status: DictationStatus) => void): (() => void) => {
     const listener = (_e: unknown, status: DictationStatus): void => handler(status)
     ipcRenderer.on('dictation:status', listener)

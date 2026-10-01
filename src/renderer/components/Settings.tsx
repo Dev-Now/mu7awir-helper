@@ -15,7 +15,13 @@ interface DictationStatus {
   progress: { what: string; received: number; total: number } | null
   error: string | null
   errorDetail: string | null
+  gpu: string | null
+  cudaInstalled: boolean
+  backend: 'cuda' | 'cpu' | null
+  backendDetail: string | null
 }
+
+const BACKEND_LABEL = { cuda: 'GPU (CUDA)', cpu: 'المعالج' } as const
 
 const mb = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(0)} م.ب`
 
@@ -101,7 +107,8 @@ export function Settings(): React.JSX.Element | null {
             <h3>الإملاء الصوتي</h3>
             {dictation?.ready ? (
               <p className="settings__note" data-testid="dictation-ready">
-                جاهز — اضغط مطوّلاً على <kbd>F4</kbd> للإملاء.
+                جاهز — اضغط مطوّلاً على <kbd>F4</kbd> للإملاء، أو انقره مرة للإملاء المستمر
+                ومرة أخرى للإيقاف. يظهر النص في الرد بعد كل وقفة.
                 <br />
                 <span className="settings__path">{dictation.modelPath}</span>
               </p>
@@ -121,6 +128,34 @@ export function Settings(): React.JSX.Element | null {
                   {dictation?.progress ? 'جارٍ التنزيل…' : 'تنزيل وتهيئة'}
                 </button>
               </>
+            )}
+            {dictation?.gpu && (
+              <div className="settings__note" data-testid="dictation-gpu">
+                تسريع GPU: <span className="settings__path">{dictation.gpu}</span>
+                {dictation.backend && <> — يعمل الآن على {BACKEND_LABEL[dictation.backend]}</>}
+                {dictation.ready && !dictation.cudaInstalled && (
+                  <>
+                    <br />
+                    الإملاء أسرع بكثير على بطاقة الرسوم.{' '}
+                    <button
+                      type="button"
+                      className="btn"
+                      data-testid="install-cuda"
+                      disabled={Boolean(dictation.progress)}
+                      onClick={() => void window.api.installDictation().then(setDictation)}
+                    >
+                      {dictation.progress ? 'جارٍ التنزيل…' : 'تنزيل تسريع GPU (~٤٤٣ م.ب)'}
+                    </button>
+                  </>
+                )}
+                {dictation.backend === 'cpu' && dictation.cudaInstalled && dictation.backendDetail && (
+                  <>
+                    <br />
+                    تعذّر تشغيل نسخة GPU، فيعمل الإملاء على المعالج:{' '}
+                    <span className="settings__path">{dictation.backendDetail}</span>
+                  </>
+                )}
+              </div>
             )}
             {dictation?.progress && (
               <p className="settings__note" data-testid="dictation-progress">
@@ -191,7 +226,7 @@ export function Settings(): React.JSX.Element | null {
                 <kbd>Ctrl+Enter</kbd>
               </li>
               <li>
-                <span>الإملاء الصوتي (اضغط مطوّلاً)</span>
+                <span>الإملاء الصوتي (مطوّلاً، أو نقرة للإملاء المستمر)</span>
                 <kbd>F4</kbd>
               </li>
             </ul>
