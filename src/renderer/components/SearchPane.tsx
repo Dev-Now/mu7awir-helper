@@ -159,7 +159,7 @@ export function SearchPane({ discussion }: SearchPaneProps): React.JSX.Element {
                 className="findbar__input"
                 data-testid="find-input"
                 autoFocus
-                dir="auto"
+                dir={findText ? 'auto' : 'rtl'}
                 placeholder="بحث في الصفحة"
                 value={findText}
                 onChange={(e) => {

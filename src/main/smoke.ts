@@ -363,6 +363,47 @@ function m1Steps(win: BrowserWindow, store: WorkspaceStore): Step[] {
       }
     },
     {
+      // Issue #1: the shell is LTR, and Arabic titles were left on the left.
+      name: 'M1 Arabic discussion and tab titles sit on the right',
+      run: async () => {
+        const gap = await evaluate<number>(
+          win,
+          `(() => {
+             const el = document.querySelectorAll('${sel('discussion')}')[1].querySelector('.discussion__title')
+             const range = document.createRange()
+             range.selectNodeContents(el)
+             return el.getBoundingClientRect().right - range.getBoundingClientRect().right
+           })()`
+        )
+        assert(gap <= 2, `the discussion title should end at its right edge, ${gap}px short`)
+
+        const tab = await evaluate<{ title: number; close: number }>(
+          win,
+          `(() => {
+             const tab = document.querySelector('${sel('search-tab')}')
+             return {
+               title: tab.querySelector('.tab__title').getBoundingClientRect().left,
+               close: tab.querySelector('${sel('search-tab-close')}').getBoundingClientRect().left
+             }
+           })()`
+        )
+        assert(tab.title > tab.close, 'the tab title should be to the right of its close button')
+
+        // The active row shows its actions; they come after the title, on the far left.
+        const row = await evaluate<{ actions: number; title: number }>(
+          win,
+          `(() => {
+             const row = document.querySelector('${sel('discussion')}[data-active]')
+             return {
+               actions: row.querySelector('.discussion__actions').getBoundingClientRect().right,
+               title: row.querySelector('.discussion__title').getBoundingClientRect().left
+             }
+           })()`
+        )
+        assert(row.actions <= row.title, 'archive and delete should sit to the left of the title')
+      }
+    },
+    {
       name: 'M1 closing the active tab moves focus to a neighbour',
       run: async () => {
         await click(win, 'search-tab-close', 0) // closes the active first tab
@@ -1248,6 +1289,24 @@ function m5Steps(win: BrowserWindow, views: ViewManager): Step[] {
       }
     },
     {
+      // Issue #1: the <li> froze text-align to the LTR list's `left`, overriding its dir.
+      name: 'M5 results are right-aligned',
+      run: async () => {
+        const style = await evaluate<{ direction: string; textAlign: string }>(
+          win,
+          `(() => {
+             const s = getComputedStyle(document.querySelector('${sel('rudud-text')}'))
+             return { direction: s.direction, textAlign: s.textAlign }
+           })()`
+        )
+        assertEqual(style.direction, 'rtl', 'result text direction')
+        assert(
+          style.textAlign === 'start' || style.textAlign === 'right',
+          `result text should align right, got text-align: ${style.textAlign}`
+        )
+      }
+    },
+    {
       name: 'M5 a bare query matches vocalised text and highlights it',
       run: async () => {
         await searchRudud(win, 'الصبر')
@@ -1682,6 +1741,33 @@ function m7Steps(win: BrowserWindow, views: ViewManager): Step[] {
         await sendKey(win.webContents, 'b', ['control'])
         await waitFor(win, `${count('sidebar')} === 0`, 'the sidebar to collapse')
         await sendKey(win.webContents, 'b', ['control'])
+        await waitFor(win, `${count('sidebar')} === 1`, 'the sidebar to return')
+      }
+    },
+    {
+      name: 'M7 a collapsed sidebar can be brought back with the mouse',
+      run: async () => {
+        await sendKey(win.webContents, 'b', ['control'])
+        await waitFor(win, `${count('sidebar')} === 0`, 'the sidebar to collapse')
+        // The peek button once sat in a 0-wide column, under the content and the view.
+        const peek = await evaluate<{ width: number; right: number; onTop: boolean }>(
+          win,
+          `(() => {
+             const el = document.querySelector('${sel('sidebar-peek')}')
+             const box = el.getBoundingClientRect()
+             const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+             return { width: box.width, right: box.right, onTop: el.contains(top) }
+           })()`
+        )
+        assert(peek.width >= 16, `the peek button should be visible, it is ${peek.width}px wide`)
+        assert(peek.onTop, 'the peek button should not be covered by the content')
+        if (views.debugState().attached.length > 0) {
+          await waitUntil(
+            () => (views.debugState().bounds?.x ?? 0) >= peek.right,
+            'the embedded view to clear the peek button'
+          )
+        }
+        await click(win, 'sidebar-peek')
         await waitFor(win, `${count('sidebar')} === 1`, 'the sidebar to return')
       }
     },
