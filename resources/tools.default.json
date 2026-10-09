@@ -6,7 +6,8 @@
     "type": "web",
     "homeUrl": "https://tafsir.app/",
     "searchUrl": "https://tafsir.app/search?q={q}",
-    "enabled": true
+    "enabled": true,
+    "copyOverlay": false
   },
   {
     "id": "hadith",
@@ -15,7 +16,8 @@
     "type": "web",
     "homeUrl": "https://sunnah.one/",
     "searchUrl": "https://sunnah.one/?s={q}",
-    "enabled": true
+    "enabled": true,
+    "copyOverlay": false
   },
   {
     "id": "fatwa",
@@ -24,7 +26,8 @@
     "type": "web",
     "homeUrl": "https://islamqa.info/ar",
     "searchUrl": "https://islamqa.info/ar/search?q={q}",
-    "enabled": true
+    "enabled": true,
+    "copyOverlay": true
   },
   {
     "id": "shamela",
@@ -33,7 +36,8 @@
     "type": "web",
     "homeUrl": "https://shamela.ws/",
     "searchUrl": "https://shamela.ws/search?q={q}",
-    "enabled": true
+    "enabled": true,
+    "copyOverlay": true
   },
   {
     "id": "basaer",
@@ -42,7 +46,8 @@
     "type": "web",
     "homeUrl": "https://basaer.shuounislamiya.org/",
     "searchUrl": null,
-    "enabled": true
+    "enabled": true,
+    "copyOverlay": true
   },
   {
     "id": "fiqh",
@@ -51,7 +56,8 @@
     "type": "web",
     "homeUrl": "",
     "searchUrl": null,
-    "enabled": false
+    "enabled": false,
+    "copyOverlay": true
   },
   {
     "id": "rudud",
@@ -60,6 +66,7 @@
     "type": "local",
     "homeUrl": "",
     "searchUrl": null,
-    "enabled": true
+    "enabled": true,
+    "copyOverlay": true
   }
 ]

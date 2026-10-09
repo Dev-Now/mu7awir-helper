@@ -140,6 +140,15 @@ function registerIpc(): void {
     tools.setSearchUrl(toolId, searchUrl)
   )
 
+  ipcMain.handle('tools:setCopyOverlay', async (_e, toolId: string, copyOverlay: boolean) => {
+    const next = await tools.setCopyOverlay(toolId, copyOverlay)
+    // Pages already open with this tool switch over without a reload.
+    for (const wc of views?.contentsForTool(toolId) ?? []) {
+      wc.send('site:config', { copyOverlay })
+    }
+    return next
+  })
+
   ipcMain.handle('dictation:status', () => dictation.refresh())
   ipcMain.handle('dictation:install', () => dictation.install())
   ipcMain.handle('dictation:transcribe', (_e, wav: Uint8Array) =>
@@ -192,6 +201,13 @@ function registerIpc(): void {
 
   // ── copy pipeline ────────────────────────────────────────────────────────
 
+  /** Asked synchronously by each page preload before it decides what to draw. */
+  ipcMain.on('site:config', (event) => {
+    const toolId = views?.toolIdFor(event.sender.id) ?? null
+    const tool = toolId ? tools.get(toolId) : undefined
+    event.returnValue = { copyOverlay: tool?.copyOverlay ?? true }
+  })
+
   /**
    * An embedded page asking to copy something. Main owns the clipboard and is the only
    * side that can tell which tab the sending page belongs to.
@@ -238,8 +254,10 @@ void app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
     callback(permission === 'media' && contents === mainWindow?.webContents)
   })
-  session.fromPartition('persist:sites').setPermissionRequestHandler((_c, _p, callback) =>
-    callback(false)
+  // Sites may write the clipboard so their own copy buttons work (issue #7) — Chromium only
+  // grants it on a user gesture. Reading it, and everything else, stays denied.
+  session.fromPartition('persist:sites').setPermissionRequestHandler((_c, permission, callback) =>
+    callback(permission === 'clipboard-sanitized-write')
   )
 
   const fakeTranscript = process.env.MU7_FAKE_WHISPER

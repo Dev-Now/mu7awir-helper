@@ -43,6 +43,7 @@ export function SearchPane({ discussion }: SearchPaneProps): React.JSX.Element {
   useViewSync({
     hostRef,
     tabId: activeTab?.id ?? null,
+    toolId: activeTab?.toolId ?? null,
     initialUrl: activeTab?.url ?? '',
     // Any renderer overlay must hide the view: it is an OS-level layer that would
     // otherwise be painted straight over the top.

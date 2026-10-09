@@ -23,6 +23,7 @@ interface Bounds {
 
 interface SyncRequest {
   tabId: string | null
+  toolId: string | null
   initialUrl: string
   bounds: Bounds | null
   visible: boolean
@@ -64,6 +65,8 @@ const api = {
     ipcRenderer.invoke('shortcuts:list'),
   setToolSearchUrl: (toolId: string, searchUrl: string | null): Promise<SearchTool[]> =>
     ipcRenderer.invoke('tools:setSearchUrl', toolId, searchUrl),
+  setToolCopyOverlay: (toolId: string, copyOverlay: boolean): Promise<SearchTool[]> =>
+    ipcRenderer.invoke('tools:setCopyOverlay', toolId, copyOverlay),
   onShortcut: (handler: (message: unknown) => void): (() => void) => {
     const listener = (_e: unknown, message: unknown): void => handler(message)
     ipcRenderer.on('shortcut', listener)

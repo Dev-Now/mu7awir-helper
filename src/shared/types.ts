@@ -13,6 +13,11 @@ export interface SearchTool {
   /** URL template with a `{q}` placeholder, or null when the site's pattern is not known yet. */
   searchUrl: string | null
   enabled: boolean
+  /**
+   * Draw the hover copy button over the page. Off for sites whose own copy tools are good
+   * enough, so the page is shown as-is. The selection shortcuts work either way.
+   */
+  copyOverlay: boolean
 }
 
 /** An excerpt copied out of a search view, kept for attribution. */

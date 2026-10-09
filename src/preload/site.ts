@@ -8,6 +8,9 @@
  *   • Ctrl+Shift+C to copy the selection together with its source;
  *   • Ctrl+Enter to send the selection straight into the active draft.
  *
+ * The hover button can be switched off per tool, for sites whose own copy buttons are
+ * good enough; the page is then left exactly as the site draws it. The shortcuts stay.
+ *
  * Text never goes to the clipboard from here: it is handed to main, which owns the
  * Electron clipboard and knows which tab the page belongs to.
  */
@@ -30,6 +33,20 @@ function send(action: CopyAction, text: string): void {
     pageTitle: document.title,
     url: location.href
   })
+}
+
+interface SiteConfig {
+  copyOverlay: boolean
+}
+
+/** Main knows which tool this page was opened with; unknown pages get the overlay. */
+function readConfig(): SiteConfig {
+  try {
+    const config = ipcRenderer.sendSync('site:config') as Partial<SiteConfig> | null
+    return { copyOverlay: config?.copyOverlay !== false }
+  } catch {
+    return { copyOverlay: true }
+  }
 }
 
 function selectionText(): string {
@@ -76,6 +93,7 @@ function install(): void {
   const outline = root.querySelector('.outline') as HTMLElement
   const button = root.querySelector('.btn') as HTMLElement
   let block: HTMLElement | null = null
+  let overlayOn = readConfig().copyOverlay
 
   const hide = (): void => {
     block = null
@@ -125,6 +143,7 @@ function install(): void {
     if (scheduled) return
     scheduled = setTimeout(() => {
       scheduled = null
+      if (!overlayOn) return
       const next = blockFor(event.target)
       if (next === block) return
       block = next
@@ -143,6 +162,12 @@ function install(): void {
   document.addEventListener('mouseleave', hide)
   window.addEventListener('scroll', place, true)
   window.addEventListener('resize', place)
+
+  // Settings changed while the page was open.
+  ipcRenderer.on('site:config', (_event, config: SiteConfig) => {
+    overlayOn = config.copyOverlay
+    if (!overlayOn) hide()
+  })
 
   document.addEventListener(
     'keydown',

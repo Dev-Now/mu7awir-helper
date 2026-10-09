@@ -66,6 +66,15 @@ export function Settings(): React.JSX.Element | null {
     showToast(searchUrl ? `حُفظ نمط البحث لـ ${tool.label}` : `أُزيل نمط البحث لـ ${tool.label}`)
   }
 
+  const toggleOverlay = async (tool: SearchTool, copyOverlay: boolean): Promise<void> => {
+    setTools(await window.api.setToolCopyOverlay(tool.id, copyOverlay))
+    showToast(
+      copyOverlay
+        ? `يظهر زر النسخ في ${tool.label}`
+        : `يُعرض ${tool.label} كما هو، بأزرار نسخه الخاصة`
+    )
+  }
+
   return (
     <div className="settings" data-testid="settings" dir="rtl">
       <div className="settings__panel">
@@ -200,6 +209,22 @@ export function Settings(): React.JSX.Element | null {
                             if (next !== tool.searchUrl) void editTool(tool, next)
                           }}
                         />
+                      )}
+                    </td>
+                    <td>
+                      {tool.type === 'web' && (
+                        <label
+                          className="settings__row settings__overlay"
+                          title="أطفئه للمواقع التي تكفيها أزرار النسخ الخاصة بها"
+                        >
+                          <input
+                            type="checkbox"
+                            data-testid="tool-copy-overlay"
+                            checked={tool.copyOverlay}
+                            onChange={(e) => void toggleOverlay(tool, e.target.checked)}
+                          />
+                          زر النسخ
+                        </label>
                       )}
                     </td>
                   </tr>

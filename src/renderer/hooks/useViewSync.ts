@@ -4,6 +4,8 @@ interface ViewSyncOptions {
   /** The element the embedded view should exactly cover. */
   hostRef: React.RefObject<HTMLElement | null>
   tabId: string | null
+  /** The tab's search tool, which decides whether the page gets the copy overlay. */
+  toolId: string | null
   /** Only used when the view is first created or woken from hibernation. */
   initialUrl: string
   /** False while an overlay covers the pane, or when a local tool is active. */
@@ -18,11 +20,17 @@ interface ViewSyncOptions {
  * here and pushed to main. Sends are throttled to one per animation frame so a drag
  * cannot outpace them.
  */
-export function useViewSync({ hostRef, tabId, initialUrl, visible }: ViewSyncOptions): void {
+export function useViewSync({
+  hostRef,
+  tabId,
+  toolId,
+  initialUrl,
+  visible
+}: ViewSyncOptions): void {
   const frame = useRef<number | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const latest = useRef({ tabId, initialUrl, visible })
-  latest.current = { tabId, initialUrl, visible }
+  const latest = useRef({ tabId, toolId, initialUrl, visible })
+  latest.current = { tabId, toolId, initialUrl, visible }
 
   const cancel = useCallback(() => {
     if (frame.current !== null) cancelAnimationFrame(frame.current)

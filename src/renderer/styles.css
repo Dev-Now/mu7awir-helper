@@ -918,6 +918,12 @@ button {
   white-space: nowrap;
 }
 
+.settings__overlay {
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .settings__key,
 .settings__shortcuts kbd,
 .settings__note kbd {
