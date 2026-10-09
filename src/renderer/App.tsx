@@ -44,6 +44,7 @@ export function App(): React.JSX.Element {
         <button
           type="button"
           className="sidebar-peek"
+          data-testid="sidebar-peek"
           title="إظهار الشريط الجانبي (Ctrl+B)"
           onClick={() => updateSettings({ sidebarCollapsed: false })}
         >

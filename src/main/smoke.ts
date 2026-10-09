@@ -388,6 +388,19 @@ function m1Steps(win: BrowserWindow, store: WorkspaceStore): Step[] {
            })()`
         )
         assert(tab.title > tab.close, 'the tab title should be to the right of its close button')
+
+        // The active row shows its actions; they come after the title, on the far left.
+        const row = await evaluate<{ actions: number; title: number }>(
+          win,
+          `(() => {
+             const row = document.querySelector('${sel('discussion')}[data-active]')
+             return {
+               actions: row.querySelector('.discussion__actions').getBoundingClientRect().right,
+               title: row.querySelector('.discussion__title').getBoundingClientRect().left
+             }
+           })()`
+        )
+        assert(row.actions <= row.title, 'archive and delete should sit to the left of the title')
       }
     },
     {
@@ -1728,6 +1741,33 @@ function m7Steps(win: BrowserWindow, views: ViewManager): Step[] {
         await sendKey(win.webContents, 'b', ['control'])
         await waitFor(win, `${count('sidebar')} === 0`, 'the sidebar to collapse')
         await sendKey(win.webContents, 'b', ['control'])
+        await waitFor(win, `${count('sidebar')} === 1`, 'the sidebar to return')
+      }
+    },
+    {
+      name: 'M7 a collapsed sidebar can be brought back with the mouse',
+      run: async () => {
+        await sendKey(win.webContents, 'b', ['control'])
+        await waitFor(win, `${count('sidebar')} === 0`, 'the sidebar to collapse')
+        // The peek button once sat in a 0-wide column, under the content and the view.
+        const peek = await evaluate<{ width: number; right: number; onTop: boolean }>(
+          win,
+          `(() => {
+             const el = document.querySelector('${sel('sidebar-peek')}')
+             const box = el.getBoundingClientRect()
+             const top = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+             return { width: box.width, right: box.right, onTop: el.contains(top) }
+           })()`
+        )
+        assert(peek.width >= 16, `the peek button should be visible, it is ${peek.width}px wide`)
+        assert(peek.onTop, 'the peek button should not be covered by the content')
+        if (views.debugState().attached.length > 0) {
+          await waitUntil(
+            () => (views.debugState().bounds?.x ?? 0) >= peek.right,
+            'the embedded view to clear the peek button'
+          )
+        }
+        await click(win, 'sidebar-peek')
         await waitFor(win, `${count('sidebar')} === 1`, 'the sidebar to return')
       }
     },
