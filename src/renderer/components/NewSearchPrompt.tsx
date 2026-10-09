@@ -43,7 +43,7 @@ export function NewSearchPrompt({
   return (
     <div className="prompt" data-testid="new-search-prompt">
       <div className="prompt__card">
-        <div className="prompt__tools">
+        <div className="prompt__tools" dir="rtl">
           {usable.map((t) => (
             <button
               key={t.id}
@@ -60,7 +60,7 @@ export function NewSearchPrompt({
               <span className="prompt__tool-label" dir="auto">
                 {t.label}
               </span>
-              <span className="prompt__tool-key">{t.shortcut.replace('Ctrl+', '^')}</span>
+              <span className="prompt__tool-key" dir="ltr">{t.shortcut.replace('Ctrl+', '^')}</span>
             </button>
           ))}
         </div>
@@ -69,7 +69,8 @@ export function NewSearchPrompt({
           ref={inputRef}
           className="prompt__input"
           data-testid="prompt-query"
-          dir="auto"
+          // An empty dir="auto" input is LTR, which would put the Arabic placeholder on the left.
+          dir={query ? 'auto' : 'rtl'}
           placeholder={tool?.searchUrl ? 'اكتب كلمات البحث…' : 'سيُفتح الموقع لتبحث فيه مباشرة'}
           value={query}
           onChange={(e) => setQuery(e.target.value)}

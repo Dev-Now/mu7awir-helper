@@ -363,6 +363,34 @@ function m1Steps(win: BrowserWindow, store: WorkspaceStore): Step[] {
       }
     },
     {
+      // Issue #1: the shell is LTR, and Arabic titles were left on the left.
+      name: 'M1 Arabic discussion and tab titles sit on the right',
+      run: async () => {
+        const gap = await evaluate<number>(
+          win,
+          `(() => {
+             const el = document.querySelectorAll('${sel('discussion')}')[1].querySelector('.discussion__title')
+             const range = document.createRange()
+             range.selectNodeContents(el)
+             return el.getBoundingClientRect().right - range.getBoundingClientRect().right
+           })()`
+        )
+        assert(gap <= 2, `the discussion title should end at its right edge, ${gap}px short`)
+
+        const tab = await evaluate<{ title: number; close: number }>(
+          win,
+          `(() => {
+             const tab = document.querySelector('${sel('search-tab')}')
+             return {
+               title: tab.querySelector('.tab__title').getBoundingClientRect().left,
+               close: tab.querySelector('${sel('search-tab-close')}').getBoundingClientRect().left
+             }
+           })()`
+        )
+        assert(tab.title > tab.close, 'the tab title should be to the right of its close button')
+      }
+    },
+    {
       name: 'M1 closing the active tab moves focus to a neighbour',
       run: async () => {
         await click(win, 'search-tab-close', 0) // closes the active first tab
@@ -1245,6 +1273,24 @@ function m5Steps(win: BrowserWindow, views: ViewManager): Step[] {
           'the embedded view to detach for a local tool'
         )
         await waitFor(win, `${count('rudud-hit')} > 0`, 'results for الوسواس')
+      }
+    },
+    {
+      // Issue #1: the <li> froze text-align to the LTR list's `left`, overriding its dir.
+      name: 'M5 results are right-aligned',
+      run: async () => {
+        const style = await evaluate<{ direction: string; textAlign: string }>(
+          win,
+          `(() => {
+             const s = getComputedStyle(document.querySelector('${sel('rudud-text')}'))
+             return { direction: s.direction, textAlign: s.textAlign }
+           })()`
+        )
+        assertEqual(style.direction, 'rtl', 'result text direction')
+        assert(
+          style.textAlign === 'start' || style.textAlign === 'right',
+          `result text should align right, got text-align: ${style.textAlign}`
+        )
       }
     },
     {

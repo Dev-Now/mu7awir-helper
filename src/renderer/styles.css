@@ -21,6 +21,12 @@
   box-sizing: border-box;
 }
 
+/* Chromium gives <li> `text-align: match-parent`, which resolves against the LTR <ul>
+   and freezes to `left` — so `dir` on the item or inside it never right-aligns Arabic. */
+li {
+  text-align: start;
+}
+
 html,
 body,
 #root {
@@ -266,10 +272,13 @@ button {
   min-width: 90px;
   max-width: 220px;
   height: 26px;
-  padding: 0 4px 0 10px;
+  padding: 0;
+  padding-inline: 10px 4px;
   border-radius: 5px;
   color: var(--text-dim);
   cursor: default;
+  /* Arabic titles: title on the right, close button to its left. */
+  direction: rtl;
 }
 
 .tab:hover {
@@ -430,7 +439,6 @@ button {
   border-radius: 6px;
   background: var(--bg-input);
   cursor: pointer;
-  text-align: right;
 }
 
 .prompt__tool:hover {

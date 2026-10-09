@@ -78,7 +78,7 @@ export function RududResults({ tab }: RududResultsProps): React.JSX.Element {
           ref={inputRef}
           className="rudud__input"
           data-testid="rudud-query"
-          dir="auto"
+          dir={query ? 'auto' : 'rtl'}
           placeholder="ابحث في مكتبة الردود…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
