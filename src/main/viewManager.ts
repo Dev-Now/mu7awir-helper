@@ -40,6 +40,8 @@ export type ViewEvent =
 
 interface Entry {
   view: WebContentsView
+  /** The search tool the tab was opened with, which decides how its pages are dressed. */
+  toolId: string | null
   attached: boolean
   lastUsed: number
 }
@@ -47,6 +49,8 @@ interface Entry {
 export interface SyncRequest {
   /** The search tab to display, or null to show nothing. */
   tabId: string | null
+  /** The tab's search tool; the page preload asks for its settings. */
+  toolId: string | null
   /** Used only when the view is created or woken from hibernation. */
   initialUrl: string
   bounds: Bounds | null
@@ -89,7 +93,7 @@ export class ViewManager {
       return
     }
 
-    const entry = this.ensure(request.tabId, request.initialUrl)
+    const entry = this.ensure(request.tabId, request.initialUrl, request.toolId)
     this.activeTabId = request.tabId
     entry.lastUsed = ++this.clock
 
@@ -137,12 +141,13 @@ export class ViewManager {
 
   // ── lifecycle ──────────────────────────────────────────────────────────────
 
-  private ensure(tabId: string, initialUrl: string): Entry {
+  private ensure(tabId: string, initialUrl: string, toolId: string | null): Entry {
     const existing = this.entries.get(tabId)
     if (existing && !existing.view.webContents.isDestroyed()) return existing
 
     const view = this.create(tabId)
-    const entry: Entry = { view, attached: false, lastUsed: ++this.clock }
+    // Registered before the first load, so the page preload can already resolve its tool.
+    const entry: Entry = { view, toolId, attached: false, lastUsed: ++this.clock }
     this.entries.set(tabId, entry)
 
     // A woken tab returns to where it was, not to the tab's original URL.
@@ -342,6 +347,19 @@ export class ViewManager {
       }
     }
     return null
+  }
+
+  /** Which search tool a message's page belongs to, resolved by the sending webContents id. */
+  toolIdFor(webContentsId: number): string | null {
+    const tabId = this.tabIdFor(webContentsId)
+    return tabId ? (this.entries.get(tabId)?.toolId ?? null) : null
+  }
+
+  /** Every live page opened with a given tool, so a settings change reaches them at once. */
+  contentsForTool(toolId: string): WebContents[] {
+    return [...this.entries.values()]
+      .filter((e) => e.toolId === toolId && !e.view.webContents.isDestroyed())
+      .map((e) => e.view.webContents)
   }
 
   /** Current URL of a live view, used by the calibration flow. */

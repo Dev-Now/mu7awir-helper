@@ -25,7 +25,8 @@ function sanitizeTool(raw: unknown): SearchTool | null {
     type: raw.type === 'local' ? 'local' : 'web',
     homeUrl: typeof raw.homeUrl === 'string' ? raw.homeUrl : '',
     searchUrl: typeof raw.searchUrl === 'string' && raw.searchUrl ? raw.searchUrl : null,
-    enabled: typeof raw.enabled === 'boolean' ? raw.enabled : true
+    enabled: typeof raw.enabled === 'boolean' ? raw.enabled : true,
+    copyOverlay: typeof raw.copyOverlay === 'boolean' ? raw.copyOverlay : true
   }
 }
 
@@ -81,19 +82,32 @@ export class ToolRegistry {
 
   /** Read the user's copy, seeding it from the shipped defaults on first run. */
   async load(): Promise<SearchTool[]> {
-    const fromUser = await this.read(this.file)
+    const defaults = sanitizeTools(await this.read(this.defaultsFile)) ?? []
+    const rawUser = await this.read(this.file)
+    const fromUser = sanitizeTools(rawUser)
     if (fromUser) {
-      this.tools = fromUser
+      // A user copy seeded by an older release predates some settings. Take those from the
+      // shipped defaults rather than the generic fallback, so per-site choices still arrive.
+      const missing = new Set(
+        (rawUser as unknown[])
+          .filter((t) => isObject(t) && typeof t.copyOverlay !== 'boolean')
+          .map((t) => (t as Record<string, unknown>).id)
+      )
+      this.tools = fromUser.map((t) => {
+        const shipped = defaults.find((d) => d.id === t.id)
+        return missing.has(t.id) && shipped ? { ...t, copyOverlay: shipped.copyOverlay } : t
+      })
+      if (missing.size > 0) await this.persist().catch(() => {})
       return this.tools
     }
-    this.tools = (await this.read(this.defaultsFile)) ?? []
+    this.tools = defaults
     await this.persist().catch(() => {})
     return this.tools
   }
 
-  private async read(file: string): Promise<SearchTool[] | null> {
+  private async read(file: string): Promise<unknown> {
     try {
-      return sanitizeTools(JSON.parse(await fs.readFile(file, 'utf8')))
+      return JSON.parse(await fs.readFile(file, 'utf8'))
     } catch {
       return null
     }
@@ -110,6 +124,13 @@ export class ToolRegistry {
   /** Save a search template learned from the calibration flow. */
   async setSearchUrl(id: string, searchUrl: string | null): Promise<SearchTool[]> {
     this.tools = this.tools.map((t) => (t.id === id ? { ...t, searchUrl } : t))
+    await this.persist()
+    return this.tools
+  }
+
+  /** Turn the hover copy button on or off for one tool. */
+  async setCopyOverlay(id: string, copyOverlay: boolean): Promise<SearchTool[]> {
+    this.tools = this.tools.map((t) => (t.id === id ? { ...t, copyOverlay } : t))
     await this.persist()
     return this.tools
   }

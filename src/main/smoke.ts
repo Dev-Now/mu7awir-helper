@@ -11,6 +11,8 @@ import { app } from 'electron'
 import { promises as fs } from 'node:fs'
 import { statSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import type { SpawnLike } from './dictation'
 import type { WorkspaceStore } from './store'
 import type { ViewManager } from './viewManager'
@@ -471,6 +473,23 @@ const dataPage = (title: string, body: string): string =>
       `</head><body style="font:16px sans-serif">${body}</body></html>`
   )
 
+/**
+ * Serve one page from 127.0.0.1 and stop listening once it has been fetched. For pages
+ * that need a secure context — a `data:` URL has an opaque origin, so APIs such as
+ * `navigator.clipboard` are simply absent there. Loopback still never leaves the machine.
+ */
+async function loopbackPage(title: string, body: string): Promise<string> {
+  const html =
+    `<!doctype html><html lang="ar"><head><meta charset="utf-8"><title>${title}</title>` +
+    `</head><body style="font:16px sans-serif">${body}</body></html>`
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', connection: 'close' })
+    res.end(html, () => server.close())
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}/`
+}
+
 const PAGE_A = dataPage('صفحة أ', '<p>الصبر</p><p>الصبر</p><p>الصبر مفتاح الفرج</p>')
 const PAGE_B = dataPage('صفحة ب', '<p>الشكر لله</p>')
 
@@ -796,6 +815,7 @@ const pressInPage = (views: ViewManager, key: string, shift: boolean): Promise<v
 
 function m3Steps(win: BrowserWindow, store: WorkspaceStore, views: ViewManager): Step[] {
   const QUOTE = 'الصَّبْرُ عِنْدَ الصَّدْمَةِ الأُولى'
+  const SITE_COPY = 'إنما الصبر عند الصدمة الأولى — نسخه الموقع بزره'
   const page = dataPage(
     'صفحة الاقتباس',
     `<p>قصير</p><p>${QUOTE} — وهذا نصٌّ طويل بما يكفي ليستحق زر النسخ.</p>` +
@@ -809,8 +829,9 @@ function m3Steps(win: BrowserWindow, store: WorkspaceStore, views: ViewManager):
       run: async () => {
         await evaluate(win, `window.__mu7.actions.createDiscussion('حوار النسخ')`)
         await sleep(60)
+        // `fatwa` keeps the overlay; `quran` ships without it (issue #7, steps below).
         tabId = await openLocalSearchTab(win, views, {
-          toolId: 'quran',
+          toolId: 'fatwa',
           title: 'اقتباس',
           query: 'الصبر',
           url: page
@@ -929,6 +950,58 @@ function m3Steps(win: BrowserWindow, store: WorkspaceStore, views: ViewManager):
           draft.kind === 'draft' && draft.sources.length === 2,
           'both sources should be persisted'
         )
+      }
+    },
+    {
+      name: 'M3 a tool shown raw gets no copy button',
+      run: async () => {
+        const rawPage = await loopbackPage(
+          'صفحة بأزرار نسخها',
+          `<p>${QUOTE} — نصٌّ طويل بما يكفي، لكن الموقع يعرض أزرار نسخه الخاصة.</p>` +
+            `<button id="site-copy" onclick="navigator.clipboard.writeText('${SITE_COPY}')
+               .then(() => { document.body.dataset.copied = 'ok' },
+                     (e) => { document.body.dataset.copied = 'error: ' + e.message })">نسخ</button>`
+        )
+        await openLocalSearchTab(win, views, { toolId: 'quran', title: 'خام', url: rawPage })
+        await waitUntil(() => views.attachedContents()?.getURL() === rawPage, 'the raw page to load')
+        await sleep(200)
+
+        // Hover long enough that a button would have appeared if one were coming.
+        assertEqual(await hoverBlock(views, 0, 'flex'), 'none', 'no copy button on a raw tool')
+      }
+    },
+    {
+      name: "M3 a site's own copy button reaches the clipboard (issue #7)",
+      run: async () => {
+        await evaluate(win, `window.api.writeClipboard('نسخة سابقة من التطبيق')`)
+        views.attachedContents()!.focus()
+        await inPage(views, `document.getElementById('site-copy').click()`)
+        let outcome = ''
+        for (let attempt = 0; attempt < 50 && !outcome; attempt++) {
+          await sleep(80)
+          outcome = await inPage<string>(views, `document.body.dataset.copied || ''`)
+        }
+
+        assertEqual(
+          outcome,
+          'ok',
+          "the site's clipboard write should be granted"
+        )
+        assertEqual(
+          await evaluate<string>(win, `window.__mu7.readClipboard()`),
+          SITE_COPY,
+          'the clipboard should hold what the site copied, not the earlier in-app copy'
+        )
+      }
+    },
+    {
+      name: 'M3 turning the copy button back on reaches an open page',
+      run: async () => {
+        await evaluate(win, `window.api.setToolCopyOverlay('quran', true)`)
+        assertEqual(await hoverBlock(views, 0, 'flex'), 'flex', 'the button returns without a reload')
+
+        await evaluate(win, `window.api.setToolCopyOverlay('quran', false)`)
+        assertEqual(await hoverBlock(views, 0, 'none'), 'none', 'and goes away again')
       }
     }
   ]

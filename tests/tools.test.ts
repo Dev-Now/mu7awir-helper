@@ -20,6 +20,7 @@ const tool = (patch: Partial<SearchTool> = {}): SearchTool => ({
   homeUrl: 'https://tafsir.app/',
   searchUrl: 'https://tafsir.app/search?q={q}',
   enabled: true,
+  copyOverlay: false,
   ...patch
 })
 
@@ -100,7 +101,8 @@ describe('sanitizeTools', () => {
       type: 'web',
       homeUrl: '',
       searchUrl: null,
-      enabled: true
+      enabled: true,
+      copyOverlay: true
     })
   })
 })
@@ -132,6 +134,8 @@ describe('shipped defaults', () => {
     expect(tools!.filter((t) => t.type === 'web' && t.enabled && !t.searchUrl).map((t) => t.id)).toEqual([
       'basaer'
     ])
+    // Sites with good copy buttons of their own are shown raw (issue #7).
+    expect(tools!.filter((t) => !t.copyOverlay).map((t) => t.id)).toEqual(['quran', 'hadith'])
   })
 })
 
@@ -171,6 +175,39 @@ describe('ToolRegistry', () => {
     expect(reloaded.find((t) => t.id === 'basaer')?.searchUrl).toBe(
       'https://basaer.shuounislamiya.org/?s={q}'
     )
+  })
+
+  it('takes a missing copyOverlay from the shipped defaults, keeping explicit choices', async () => {
+    // A copy seeded before the setting existed, plus one tool where the user already chose.
+    await fs.writeFile(
+      path.join(dir, 'tools.json'),
+      JSON.stringify([
+        { id: 'quran', homeUrl: 'https://tafsir.app/' },
+        { id: 'hadith', homeUrl: 'https://sunnah.one/', copyOverlay: true },
+        { id: 'fatwa', homeUrl: 'https://islamqa.info/ar' },
+        { id: 'mine', homeUrl: 'https://example.org' }
+      ]),
+      'utf8'
+    )
+    const tools = await new ToolRegistry(dir, DEFAULTS).load()
+    expect(Object.fromEntries(tools.map((t) => [t.id, t.copyOverlay]))).toEqual({
+      quran: false,
+      hadith: true,
+      fatwa: true,
+      mine: true
+    })
+    // Written back, so the next start reads it as an explicit choice.
+    const saved = JSON.parse(await fs.readFile(path.join(dir, 'tools.json'), 'utf8'))
+    expect(saved.map((t: SearchTool) => t.copyOverlay)).toEqual([false, true, true, true])
+  })
+
+  it('persists the copy overlay choice', async () => {
+    const registry = new ToolRegistry(dir, DEFAULTS)
+    await registry.load()
+    await registry.setCopyOverlay('quran', true)
+
+    const reloaded = await new ToolRegistry(dir, DEFAULTS).load()
+    expect(reloaded.find((t) => t.id === 'quran')?.copyOverlay).toBe(true)
   })
 
   it('falls back to the defaults when the user copy is corrupt', async () => {
