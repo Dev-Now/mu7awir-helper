@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { RududHit, RududNavCategory, RududResult } from '@shared/rudud'
 import type { SearchTool, Workspace } from '@shared/types'
 
 interface DictationStatus {
@@ -41,7 +42,12 @@ const api = {
   calibrateTool: (toolId: string, tabId: string, query: string): Promise<string | null> =>
     ipcRenderer.invoke('tools:calibrate', toolId, tabId, query),
 
-  searchRudud: (query: string): Promise<unknown> => ipcRenderer.invoke('rudud:search', query),
+  searchRudud: (query: string): Promise<RududResult> => ipcRenderer.invoke('rudud:search', query),
+  rududNav: (): Promise<RududNavCategory[]> => ipcRenderer.invoke('rudud:nav'),
+  rududTag: (tag: string, query?: string): Promise<RududResult> =>
+    ipcRenderer.invoke('rudud:tag', tag, query),
+  rududTopic: (key: string, query?: string): Promise<RududHit | null> =>
+    ipcRenderer.invoke('rudud:topic', key, query),
   rududStatus: (): Promise<{ available: boolean; size: number }> =>
     ipcRenderer.invoke('rudud:status'),
 

@@ -74,7 +74,7 @@ mu7awir-helper/
 ├─ electron.vite.config.ts, tsconfig.json, package.json
 ├─ resources/
 │  ├─ tools.default.json          # shipped plugin registry
-│  └─ rudud.json                  # generated, gitignored
+│  └─ rudud.json                  # generated, gitignored: { toc, topics }
 ├─ scripts/build-rudud-index.mjs  # Telegram export → rudud.json
 ├─ src/
 │  ├─ main/
@@ -82,7 +82,7 @@ mu7awir-helper/
 │  │  ├─ viewManager.ts           # WebContentsView lifecycle, bounds, hibernation
 │  │  ├─ store.ts                 # workspace.json load / debounced atomic save
 │  │  ├─ tools.ts                 # plugin registry + {q} templating
-│  │  ├─ rududIndex.ts            # MiniSearch over rudud.json
+│  │  ├─ rududIndex.ts            # MiniSearch over the topics in rudud.json
 │  │  ├─ dictation.ts             # model bootstrap, GPU detection, backend choice
 │  │  ├─ whisperServer.ts         # resident whisper-server process
 │  │  ├─ shortcuts.ts             # one keymap table, bound to all webContents
@@ -192,13 +192,13 @@ Copied text is cleaned: collapse whitespace, strip zero-width characters, **pres
 **Build step** (`scripts/build-rudud-index.mjs`, run via `npm run build:rudud`):
 
 - Read `doc/ChatExport_2026-09-24__JSON/result.json`, keep `type === 'message'` with non-empty text.
-- Flatten `text_entities` into a plain string, preserving hashtag text and link URLs.
-- **Header inheritance:** the channel's pattern is a hashtag-only message (e.g. id 4, `#أوجه_استجابة_الدعاء 👇`) followed by the body. Treat a message whose text minus hashtags/emoji is under ~10 chars as a header and attach its hashtags as topic tags to subsequent messages until the next header.
-- Emit `resources/rudud.json`: `[{ id, date, tags[], text, norm }]`.
+- **Table of contents:** the channel keeps a pinned index — a master message listing `#فهرس_1…11` with titles, then one message per category listing its topic hashtags under decorated section headings (`🍀 المرأة🍀`), sometimes with a note after the tag. Parse it into `toc: [{ id, title, sections: [{ title, topics: [{ tag, note? }] }] }]`.
+- **Topics, not messages:** the channel posts a hashtag header (`#أوجه_استجابة_الدعاء 👇`), one or more body messages, and often a `… 👆` closer. Group them: a topic starts at a short tagged message or one opening with a listed tag (its last listed tag is the key; every tag in the header resolves to it), or at an untagged `… 👇` line; it ends at a `👆` closer, the next header, or a 12-hour pause after content arrived. Inline hashtags in body text are text. A header followed straight by a sub-header is its parent. The same tag posted again merges into one topic, parts in posting order. A header answered only by a video is kept as `mediaOnly`.
+- Emit `resources/rudud.json`: `{ toc, topics: [{ key, tags[], kind, title, mediaOnly?, firstDate, lastDate, parts: [{ id, date, text, heading? }] }] }`. Every topic the index lists must resolve to content.
 
 **Arabic normalizer** (`src/renderer/lib/arabic.ts`, shared by the build script and runtime — one implementation, not two): strip tashkeel `U+064B–U+0652` and `U+0670`, strip tatweel `U+0640`, fold `أإآٱ→ا`, `ى→ي`, `ة→ه`, `ؤ→و`, `ئ→ي`, strip punctuation and emoji, collapse whitespace.
 
-**Runtime:** main loads `rudud.json` at startup into MiniSearch with the normalizer as `processTerm`, fields `['text','tags']`, `prefix: true`, `fuzzy: 0.2`, tags boosted ×3. ~1,000 documents searches in well under a millisecond. Results render as React cards — tags, date, highlighted snippet, expand, copy, copy-to-draft — in the search pane with all `WebContentsView`s hidden.
+**Runtime:** main loads `rudud.json` at startup into MiniSearch, one document per *topic*, with the normalizer as `processTerm`, fields `['title','tags','text']`, `prefix: true`, `fuzzy: 0.2`, title ×3 and tags ×2. A few hundred topics search in well under a millisecond. The panel (search pane, all `WebContentsView`s hidden) shows the table of contents as a sidebar — categories → sections → topics, with a filter — beside either search results (one card per topic: place in the index, title, tags, snippet, part count, expand, copy, copy-to-draft) or one whole topic with its parts in order and per-part copy. The open topic lives in the search tab's `url` (`rudud:tag:#…` / `rudud:topic:<key>`), the search in its `query`, so restored tabs reopen where they were.
 
 ---
 
@@ -292,9 +292,9 @@ When a new search tab is opened with `Ctrl+1..7` and text is selected in the cur
 
 **Automated (vitest + node):**
 
-- `npm run build:rudud` asserts ≥ 1,000 indexed documents and prints a sample record.
+- `npm run build:rudud` asserts ≥ 300 topics and a parsed table of contents, and lists any indexed topic without content.
 - Normalizer unit tests: tashkeel stripping, alef/ya/ta-marbuta folding, idempotence.
-- Index recall test: searching `الوسواس القهري` returns the messages tagged `#الوسواس_القهري_وعلاجه_مكثف` and `#علاج_الوسواس_القهري_للمبتدئين`; `الصبر` returns non-zero hits.
+- Index recall test: searching `الوسواس القهري` returns the topics tagged `#الوسواس_القهري_وعلاجه_مكثف` and `#علاج_الوسواس_القهري_للمبتدئين`; `الصبر` returns non-zero hits.
 - Store round-trip: write a workspace with 3 discussions and mixed tabs, reload, deep-equal; simulate a crash mid-write and confirm the `.bak` recovers.
 
 **Manual E2E (the acceptance run, `npm run dev`):**

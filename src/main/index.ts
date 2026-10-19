@@ -163,6 +163,9 @@ function registerIpc(): void {
   )
 
   ipcMain.handle('rudud:search', (_e, query: string) => rudud.search(query))
+  ipcMain.handle('rudud:nav', () => rudud.navigation())
+  ipcMain.handle('rudud:tag', (_e, tag: string, query?: string) => rudud.tag(tag, query))
+  ipcMain.handle('rudud:topic', (_e, key: string, query?: string) => rudud.topic(key, query))
   ipcMain.handle('rudud:status', () => ({ available: rudud.available, size: rudud.size }))
 
   ipcMain.handle('tools:buildUrl', (_e, toolId: string, query: string): string => {
@@ -277,7 +280,7 @@ void app.whenReady().then(async () => {
 
   rudud = new RududIndex()
   if (await rudud.load(resourcePath('resources', 'rudud.json'))) {
-    console.log(`[rudud] indexed ${rudud.size} documents`)
+    console.log(`[rudud] indexed ${rudud.size} topics`)
   } else {
     console.warn('[rudud] no index found — run `npm run build:rudud`')
   }
