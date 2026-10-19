@@ -603,6 +603,7 @@ button {
   height: 100%;
   min-height: 0;
   background: var(--bg);
+  container-type: inline-size;
 }
 
 .rudud__search {
@@ -611,6 +612,11 @@ button {
   gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
+}
+
+.icon-btn--on {
+  background: var(--bg-active);
+  color: var(--text);
 }
 
 .rudud__input {
@@ -638,6 +644,180 @@ button {
   font-size: 12px;
 }
 
+/* dir="rtl" on the body puts the table of contents on the right. */
+.rudud__body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.rudud__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── table of contents ── */
+
+.rudud-toc {
+  display: flex;
+  flex: 0 0 280px;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-raised);
+  font-family: var(--font-ar);
+}
+
+/* Narrow panes: the table of contents floats over the results instead of squeezing them. */
+@container (max-width: 620px) {
+  .rudud-toc {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(280px, 85%);
+    box-shadow: -8px 0 24px rgb(0 0 0 / 45%);
+    z-index: 2;
+  }
+}
+
+.rudud-toc__filter {
+  margin: 8px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 13px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: var(--font-ar);
+  font-size: 13px;
+  outline: none;
+}
+
+.rudud-toc__filter:focus {
+  border-color: var(--accent);
+}
+
+.rudud-toc__list {
+  flex: 1;
+  min-height: 0;
+  padding: 0 4px 10px;
+  overflow-y: auto;
+}
+
+.rudud-toc__empty {
+  padding: 12px;
+  color: var(--text-faint);
+  font-size: 13px;
+  text-align: center;
+}
+
+.rudud-toc__category-title,
+.rudud-toc__item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  text-align: start;
+}
+
+.rudud-toc__category-title {
+  margin-top: 2px;
+  padding: 6px 6px;
+  color: var(--text);
+  font-family: var(--font-ar);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.rudud-toc__category-title:hover,
+.rudud-toc__item:hover:not(:disabled) {
+  background: var(--bg-active);
+}
+
+.rudud-toc__chevron {
+  flex: 0 0 auto;
+  width: 10px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.rudud-toc__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.rudud-toc__count {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: normal;
+}
+
+.rudud-toc__section {
+  margin: 2px 0 6px;
+  padding-right: 16px;
+}
+
+.rudud-toc__section-title {
+  padding: 6px 6px 2px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.rudud-toc__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rudud-toc__item {
+  padding: 3px 6px;
+  color: var(--text-dim);
+  font-family: var(--font-ar);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rudud-toc__item:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.rudud-toc__item--current {
+  background: var(--accent-dim);
+  color: #fff;
+}
+
+.rudud-toc__item--current .rudud-toc__count,
+.rudud-toc__item--current .rudud-toc__note {
+  color: #dbe6f7;
+}
+
+.rudud-toc__note {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* ── results and topics ── */
+
+.rudud__welcome {
+  gap: 10px;
+  align-content: center;
+}
+
+.rudud__welcome p {
+  margin: 0;
+}
+
 .rudud__list {
   flex: 1;
   margin: 0;
@@ -654,12 +834,53 @@ button {
   background: var(--bg-raised);
 }
 
+.rudud__header {
+  margin-bottom: 6px;
+}
+
+.rudud__place {
+  color: var(--text-faint);
+  font-family: var(--font-ar);
+  font-size: 11px;
+}
+
+.rudud__title {
+  display: block;
+  margin: 2px 0 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-ar);
+  font-size: 16px;
+  font-weight: 600;
+  text-align: start;
+}
+
+button.rudud__title {
+  cursor: pointer;
+}
+
+button.rudud__title:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.rudud__title--large {
+  font-size: 20px;
+}
+
+.rudud__title mark {
+  border-radius: 2px;
+  background: var(--accent-dim);
+  color: #fff;
+}
+
 .rudud__meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 6px;
 }
 
 .rudud__tag {
@@ -675,6 +896,12 @@ button {
 
 .rudud__tag:hover {
   background: var(--bg-active);
+}
+
+.rudud__parts {
+  color: var(--text-dim);
+  font-family: var(--font-ar);
+  font-size: 11px;
 }
 
 .rudud__date {
@@ -697,6 +924,11 @@ button {
   color: var(--text);
 }
 
+.rudud__text--selectable {
+  cursor: text;
+  user-select: text;
+}
+
 .rudud__text mark {
   padding: 0 1px;
   border-radius: 2px;
@@ -704,11 +936,81 @@ button {
   color: #fff;
 }
 
+.rudud__divider {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px dashed var(--border-strong);
+}
+
+.rudud__heading {
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-family: var(--font-ar);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.rudud__media {
+  padding: 8px 0;
+  color: var(--text-faint);
+  font-family: var(--font-ar);
+  font-size: 13px;
+}
+
 .rudud__actions {
   display: flex;
+  align-items: center;
   gap: 6px;
   justify-content: flex-end;
   margin-top: 8px;
+}
+
+.rudud__actions--part {
+  margin-top: 4px;
+  opacity: 0.55;
+}
+
+.rudud__part:hover .rudud__actions--part {
+  opacity: 1;
+}
+
+.rudud__part-label {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-family: var(--font-ar);
+  font-size: 11px;
+}
+
+.rudud__topic {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 16px 24px;
+  overflow-y: auto;
+}
+
+.rudud__back {
+  margin-bottom: 8px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--font-ar);
+  font-size: 13px;
+}
+
+.rudud__back:hover {
+  text-decoration: underline;
+}
+
+.rudud__article + .rudud__article {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-strong);
+}
+
+.rudud__article > .rudud__actions {
+  margin-top: 14px;
 }
 
 .rudud code {

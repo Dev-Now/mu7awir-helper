@@ -1246,21 +1246,38 @@ const COMMIT_WAIT = 500
 
 // ── M5: مكتبة الردود ─────────────────────────────────────────────────────────
 
-/** Type a query into the ردود search box and submit it. */
-async function searchRudud(win: BrowserWindow, query: string): Promise<void> {
+/** Set a React-controlled input the way typing would. */
+async function setInput(win: BrowserWindow, testId: string, value: string): Promise<void> {
   await evaluate(
     win,
     `(() => {
-       const input = document.querySelector('${sel('rudud-query')}')
-       if (!input) throw new Error('the ردود search box is not mounted')
+       const input = document.querySelector('${sel(testId)}')
+       if (!input) throw new Error('${testId} is not mounted')
        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-       setter.call(input, ${JSON.stringify(query)})
+       setter.call(input, ${JSON.stringify(value)})
        input.dispatchEvent(new Event('input', { bubbles: true }))
      })()`
   )
   await sleep(40)
+}
+
+/** Type a query into the ردود search box and submit it. */
+async function searchRudud(win: BrowserWindow, query: string): Promise<void> {
+  await setInput(win, 'rudud-query', query)
   await click(win, 'rudud-run')
   await sleep(250)
+}
+
+/** The active ردود tab's stored location: the open topic, if any. */
+async function rududTabUrl(win: BrowserWindow): Promise<string> {
+  return evaluate<string>(
+    win,
+    `(() => {
+       const ws = window.__mu7.getWorkspace()
+       const d = ws.discussions.find((x) => x.id === ws.activeDiscussionId)
+       return d.tabs.find((t) => t.id === d.activeSearchTabId).url
+     })()`
+  )
 }
 
 function m5Steps(win: BrowserWindow, views: ViewManager): Step[] {
@@ -1273,7 +1290,7 @@ function m5Steps(win: BrowserWindow, views: ViewManager): Step[] {
           `window.__mu7.rududStatus()`
         )
         assert(status.available, 'the ردود index should be loaded — run `npm run build:rudud`')
-        assert(status.size > 600, `expected the full corpus, got ${status.size} documents`)
+        assert(status.size > 300, `expected the full corpus, got ${status.size} topics`)
       }
     },
     {
@@ -1373,13 +1390,13 @@ function m5Steps(win: BrowserWindow, views: ViewManager): Step[] {
            })()`
         )
         assert(
-          sources.some((s) => s.startsWith('مكتبة الردود #')),
+          sources.some((s) => s.startsWith('مكتبة الردود — ')),
           `expected a ردود attribution, got ${JSON.stringify(sources)}`
         )
       }
     },
     {
-      name: 'M5 clicking a tag searches for it',
+      name: 'M5 clicking a tag opens everything filed under it',
       run: async () => {
         const tag = await evaluate<string | null>(
           win,
@@ -1388,15 +1405,72 @@ function m5Steps(win: BrowserWindow, views: ViewManager): Step[] {
              return el ? el.textContent : null
            })()`
         )
-        if (!tag) return // this result set happens to be untagged
+        assert(tag, 'a result should carry its topic tag')
         await evaluate(win, `document.querySelector('.rudud__tag').click()`)
-        await sleep(300)
-        await waitFor(win, `${count('rudud-hit')} > 0`, `results for the tag ${tag}`)
+        await waitFor(win, `${count('rudud-article')} > 0`, `the topic for ${tag}`)
+        assertEqual(await rududTabUrl(win), `rudud:tag:${tag}`, 'the tab should remember the open tag')
         assertEqual(
           await evaluate<string>(win, `document.querySelector('${sel('rudud-query')}').value`),
-          tag,
-          'the search box should show the tag that was clicked'
+          'الصبر',
+          'opening a topic keeps the search it came from'
         )
+
+        await click(win, 'rudud-back')
+        await waitFor(win, `${count('rudud-hit')} > 0`, 'the results to come back')
+        assertEqual(await rududTabUrl(win), '', 'going back clears the open topic')
+      }
+    },
+    {
+      name: 'M5 an empty search shows the table of contents',
+      run: async () => {
+        await searchRudud(win, '')
+        await waitFor(win, `${count('rudud-welcome')} === 1`, 'the welcome message')
+        await waitFor(win, `${count('rudud-toc-category')} >= 11`, 'the index categories')
+      }
+    },
+    {
+      name: 'M5 a topic opened from the index shows all its parts in order',
+      run: async () => {
+        await setInput(win, 'rudud-toc-filter', 'القضية الفلسطينية')
+        await waitFor(win, `${count('rudud-toc-item')} > 0`, 'the filtered index')
+        await click(win, 'rudud-toc-item', 0)
+        await waitFor(win, `${count('rudud-part')} >= 5`, 'the parts of the Palestine topic')
+
+        const ids = await evaluate<number[]>(
+          win,
+          `[...document.querySelectorAll('${sel('rudud-part')}')].map((el) => Number(el.dataset.id))`
+        )
+        assertEqual(ids.join(','), [...ids].sort((a, b) => a - b).join(','), 'part order')
+        assert(
+          (await rududTabUrl(win)).startsWith('rudud:'),
+          'the tab should remember the open topic'
+        )
+        await waitFor(
+          win,
+          `document.querySelectorAll('.rudud-toc__item--current').length > 0`,
+          'the open topic to be marked in the index'
+        )
+      }
+    },
+    {
+      name: 'M5 copying a topic copies every part',
+      run: async () => {
+        await evaluate(win, `window.api.writeClipboard('')`)
+        await click(win, 'rudud-copy', 0)
+        await sleep(250)
+        const copied = await evaluate<string>(win, `window.__mu7.readClipboard()`)
+        const parts = await evaluate<string[]>(
+          win,
+          `[...document.querySelectorAll('${sel('rudud-part')} ${sel('rudud-text')}')].map((el) => el.textContent)`
+        )
+        assert(parts.length >= 5, `expected several parts, got ${parts.length}`)
+        for (const part of [parts[0], parts[parts.length - 1]]) {
+          assert(copied.includes(part.trim().slice(0, 40)), 'the copy should include every part')
+        }
+
+        await setInput(win, 'rudud-toc-filter', '')
+        await click(win, 'rudud-back')
+        await waitFor(win, `${count('rudud-welcome')} === 1`, 'the index home')
       }
     }
   ]
